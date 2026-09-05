@@ -63,10 +63,17 @@ export default function Home() {
   const [filter, setFilter] = useState('todos');
 
   const [monto, setMonto] = useState('');
+  const [montoDisplay, setMontoDisplay] = useState('');
   const [fecha, setFecha] = useState('');
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('ingreso');
   const [cuenta, setCuenta] = useState('sublime');
+
+  function handleMontoChange(e) {
+    const raw = e.target.value.replace(/\D/g, '');
+    setMonto(raw);
+    setMontoDisplay(raw ? parseInt(raw).toLocaleString('es-PY') : '');
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -107,10 +114,11 @@ export default function Home() {
       monto: montoNum, fecha, categoria: categoria.trim(), tipo, cuenta,
       user_id: session.user.id,
     });
-    if (!error) { setMonto(''); setCategoria(''); loadTransactions(); }
+    if (!error) { setMonto(''); setMontoDisplay(''); setCategoria(''); loadTransactions(); }
   }
 
   async function handleDelete(id) {
+    if (!window.confirm('¿Eliminar este movimiento?')) return;
     await supabase.from('transactions').delete().eq('id', id);
     loadTransactions();
   }
@@ -175,8 +183,8 @@ export default function Home() {
           <div className="field" style={{ flex: 1.4 }}>
             <label>Monto (₲)</label>
             <input
-              type="number" inputMode="numeric" className="num"
-              value={monto} onChange={(e) => setMonto(e.target.value)}
+              type="text" inputMode="numeric" className="num"
+              value={montoDisplay} onChange={handleMontoChange}
               placeholder="0" required
             />
           </div>
