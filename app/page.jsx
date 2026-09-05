@@ -72,7 +72,7 @@ export default function Home() {
   function handleMontoChange(e) {
     const raw = e.target.value.replace(/\D/g, '');
     setMonto(raw);
-    setMontoDisplay(raw ? parseInt(raw).toLocaleString('es-PY') : '');
+    setMontoDisplay(raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
   }
 
   useEffect(() => {
