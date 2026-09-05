@@ -6,49 +6,44 @@ import { supabase } from '../lib/supabaseClient';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 
-function DonutChart({ sublime, personal }) {
-  const total = Math.abs(sublime) + Math.abs(personal);
+function getUserConfig(email) {
+  if (email === 'karendanielasanchezjabs@gmail.com') {
+    return { c1: 'tienda', c2: 'personal', l1: 'Tienda', l2: 'Personal' };
+  }
+  return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' };
+}
+
+function DonutChart({ a, b }) {
+  const total = Math.abs(a) + Math.abs(b);
   if (total === 0) {
     return (
       <div className="donut-wrap">
         <svg width="160" height="160" viewBox="0 0 160 160">
           <circle cx="80" cy="80" r="60" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" />
-          <text x="80" y="76" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="12" fontFamily="Inter,sans-serif">Sin datos</text>
+          <text x="80" y="80" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.3)" fontSize="12" fontFamily="Inter,sans-serif">Sin datos</text>
         </svg>
       </div>
     );
   }
   const r = 60;
   const circ = 2 * Math.PI * r;
-  const sRatio = Math.abs(sublime) / total;
-  const sDash = sRatio * circ;
-  const pDash = (1 - sRatio) * circ;
-
+  const aRatio = Math.abs(a) / total;
+  const aDash = aRatio * circ;
+  const bDash = (1 - aRatio) * circ;
   return (
     <div className="donut-wrap">
       <svg width="160" height="160" viewBox="0 0 160 160" style={{ transform: 'rotate(-90deg)' }}>
         <circle cx="80" cy="80" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" />
-        <circle
-          cx="80" cy="80" r={r} fill="none"
-          stroke="url(#blueGrad)" strokeWidth="18"
-          strokeDasharray={`${sDash} ${circ - sDash}`}
-          strokeLinecap="round"
-        />
-        <circle
-          cx="80" cy="80" r={r} fill="none"
-          stroke="url(#purpleGrad)" strokeWidth="18"
-          strokeDasharray={`${pDash} ${circ - pDash}`}
-          strokeDashoffset={-sDash}
-          strokeLinecap="round"
-        />
+        <circle cx="80" cy="80" r={r} fill="none" stroke="url(#blueGrad)" strokeWidth="18"
+          strokeDasharray={`${aDash} ${circ - aDash}`} strokeLinecap="round" />
+        <circle cx="80" cy="80" r={r} fill="none" stroke="url(#purpleGrad)" strokeWidth="18"
+          strokeDasharray={`${bDash} ${circ - bDash}`} strokeDashoffset={-aDash} strokeLinecap="round" />
         <defs>
           <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#4facfe" />
-            <stop offset="100%" stopColor="#00f2fe" />
+            <stop offset="0%" stopColor="#4facfe" /><stop offset="100%" stopColor="#00f2fe" />
           </linearGradient>
           <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#a78bfa" />
-            <stop offset="100%" stopColor="#f472b6" />
+            <stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#f472b6" />
           </linearGradient>
         </defs>
       </svg>
@@ -61,6 +56,7 @@ export default function Home() {
   const [session, setSession] = useState(undefined);
   const [transactions, setTransactions] = useState([]);
   const [filter, setFilter] = useState('todos');
+  const [cfg, setCfg] = useState({ c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' });
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
@@ -78,26 +74,37 @@ export default function Home() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       if (!data.session) router.push('/login');
-      else setSession(data.session);
+      else {
+        setSession(data.session);
+        const c = getUserConfig(data.session.user.email);
+        setCfg(c);
+        setCuenta(c.c1);
+      }
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
       if (!s) router.push('/login');
-      setSession(s);
+      else {
+        setSession(s);
+        const c = getUserConfig(s.user.email);
+        setCfg(c);
+        setCuenta(c.c1);
+      }
     });
     return () => listener.subscription.unsubscribe();
   }, [router]);
 
-  const loadTransactions = useCallback(async () => {
+  const loadTransactions = useCallback(async (userId) => {
     const { data, error } = await supabase
       .from('transactions')
       .select('*')
+      .eq('user_id', userId)
       .order('fecha', { ascending: false })
       .order('id', { ascending: false });
     if (!error && data) setTransactions(data);
   }, []);
 
   useEffect(() => {
-    if (session) loadTransactions();
+    if (session) loadTransactions(session.user.id);
   }, [session, loadTransactions]);
 
   useEffect(() => {
@@ -114,13 +121,13 @@ export default function Home() {
       monto: montoNum, fecha, categoria: categoria.trim(), tipo, cuenta,
       user_id: session.user.id,
     });
-    if (!error) { setMonto(''); setMontoDisplay(''); setCategoria(''); loadTransactions(); }
+    if (!error) { setMonto(''); setMontoDisplay(''); setCategoria(''); loadTransactions(session.user.id); }
   }
 
   async function handleDelete(id) {
     if (!window.confirm('¿Eliminar este movimiento?')) return;
     await supabase.from('transactions').delete().eq('id', id);
-    loadTransactions();
+    loadTransactions(session.user.id);
   }
 
   async function handleLogout() {
@@ -134,21 +141,18 @@ export default function Home() {
     transactions.filter((t) => t.cuenta === c)
       .reduce((acc, t) => acc + (t.tipo === 'ingreso' ? t.monto : -t.monto), 0);
 
-  const totalSublime = sumFor('sublime');
-  const totalPersonal = sumFor('personal');
-  const totalGeneral = totalSublime + totalPersonal;
+  const total1 = sumFor(cfg.c1);
+  const total2 = sumFor(cfg.c2);
+  const totalGeneral = total1 + total2;
 
-  const txIcon = (t) => {
-    if (t.cuenta === 'sublime') return '💼';
-    return '👤';
-  };
+  const txIcon = (t) => t.cuenta === cfg.c1 ? '💼' : '👤';
 
   return (
     <div className="wrap">
       <div className="top-bar">
         <div>
           <h1>Libro de caja</h1>
-          <p>Sublime &amp; Personal</p>
+          <p>{cfg.l1} &amp; {cfg.l2}</p>
         </div>
         <button className="logout-btn" onClick={handleLogout}>Salir</button>
       </div>
@@ -160,19 +164,19 @@ export default function Home() {
         </div>
       </div>
 
-      <DonutChart sublime={totalSublime} personal={totalPersonal} />
+      <DonutChart a={total1} b={total2} />
 
       <div className="totals">
         <div className="cell sublime">
-          <div className="label">Sublime</div>
-          <div className={`amount${totalSublime < 0 ? ' neg' : ''}`}>
-            {totalSublime < 0 ? '−' : '+'}{fmt(totalSublime)}
+          <div className="label">{cfg.l1}</div>
+          <div className={`amount${total1 < 0 ? ' neg' : ''}`}>
+            {total1 < 0 ? '−' : '+'}{fmt(total1)}
           </div>
         </div>
         <div className="cell personal">
-          <div className="label">Personal</div>
-          <div className={`amount${totalPersonal < 0 ? ' neg' : ''}`}>
-            {totalPersonal < 0 ? '−' : '+'}{fmt(totalPersonal)}
+          <div className="label">{cfg.l2}</div>
+          <div className={`amount${total2 < 0 ? ' neg' : ''}`}>
+            {total2 < 0 ? '−' : '+'}{fmt(total2)}
           </div>
         </div>
       </div>
@@ -182,11 +186,9 @@ export default function Home() {
         <div className="row">
           <div className="field" style={{ flex: 1.4 }}>
             <label>Monto (₲)</label>
-            <input
-              type="text" inputMode="numeric" className="num"
+            <input type="text" inputMode="numeric" className="num"
               value={montoDisplay} onChange={handleMontoChange}
-              placeholder="0" required
-            />
+              placeholder="0" required />
           </div>
           <div className="field">
             <label>Fecha</label>
@@ -204,18 +206,16 @@ export default function Home() {
           <div className="field">
             <label>Cuenta</label>
             <div className="toggle">
-              <button type="button" className={cuenta === 'sublime' ? 'active sublime' : ''} onClick={() => setCuenta('sublime')}>Sublime</button>
-              <button type="button" className={cuenta === 'personal' ? 'active personal' : ''} onClick={() => setCuenta('personal')}>Personal</button>
+              <button type="button" className={cuenta === cfg.c1 ? 'active sublime' : ''} onClick={() => setCuenta(cfg.c1)}>{cfg.l1}</button>
+              <button type="button" className={cuenta === cfg.c2 ? 'active personal' : ''} onClick={() => setCuenta(cfg.c2)}>{cfg.l2}</button>
             </div>
           </div>
         </div>
         <div className="row">
           <div className="field">
             <label>Categoría / descripción</label>
-            <input
-              type="text" value={categoria} onChange={(e) => setCategoria(e.target.value)}
-              placeholder="Ej: pago cliente, alquiler, nafta..." required
-            />
+            <input type="text" value={categoria} onChange={(e) => setCategoria(e.target.value)}
+              placeholder="Ej: venta, gasto tienda, nafta..." required />
           </div>
         </div>
         <button className="add-btn" type="submit">+ Agregar movimiento</button>
@@ -223,8 +223,8 @@ export default function Home() {
 
       <div className="filters">
         <button className={filter === 'todos' ? 'active' : ''} onClick={() => setFilter('todos')}>Todos</button>
-        <button className={filter === 'sublime' ? 'active' : ''} onClick={() => setFilter('sublime')}>Sublime</button>
-        <button className={filter === 'personal' ? 'active' : ''} onClick={() => setFilter('personal')}>Personal</button>
+        <button className={filter === cfg.c1 ? 'active' : ''} onClick={() => setFilter(cfg.c1)}>{cfg.l1}</button>
+        <button className={filter === cfg.c2 ? 'active' : ''} onClick={() => setFilter(cfg.c2)}>{cfg.l2}</button>
       </div>
 
       <p className="list-title">Movimientos</p>
@@ -235,10 +235,10 @@ export default function Home() {
         <ul className="ledger">
           {filtered.map((t) => (
             <li key={t.id}>
-              <div className={`tx-icon ${t.cuenta}`}>{txIcon(t)}</div>
+              <div className={`tx-icon ${t.cuenta === cfg.c1 ? 'sublime' : 'personal'}`}>{txIcon(t)}</div>
               <div className="meta">
                 <div className="cat">{t.categoria}</div>
-                <div className="sub">{t.fecha} · {t.cuenta === 'sublime' ? 'Sublime' : 'Personal'}</div>
+                <div className="sub">{t.fecha} · {t.cuenta === cfg.c1 ? cfg.l1 : cfg.l2}</div>
               </div>
               <div className={`amt${t.tipo === 'ingreso' ? ' pos' : ' neg'}`}>
                 {t.tipo === 'ingreso' ? '+' : '−'} {fmt(t.monto)}
