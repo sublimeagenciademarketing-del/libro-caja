@@ -124,6 +124,21 @@ function GastosFijos({ userId }) {
               </div>
               <div className="amt neg">{fmt(g.monto)}</div>
               <div style={{ display: 'flex', gap: 6 }}>
+                {g.activo && (
+                  <button className="del" style={{ fontSize: 11, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', width: 'auto', padding: '0 8px' }}
+                    title="Pagar este mes"
+                    onClick={async () => {
+                      if (!window.confirm(`¿Registrar pago de ${g.descripcion}?`)) return;
+                      await supabase.from('transactions').insert({
+                        user_id: userId, monto: g.monto, tipo: 'gasto',
+                        fecha: new Date().toISOString().slice(0, 10),
+                        categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta,
+                      });
+                      alert('Pago registrado en el panel principal.');
+                    }}>
+                    Pagar
+                  </button>
+                )}
                 <button className="del" title={g.activo ? 'Pausar' : 'Activar'} onClick={() => handleToggle(g.id, g.activo)} style={{ fontSize: 13 }}>
                   {g.activo ? '⏸' : '▶'}
                 </button>
@@ -409,6 +424,14 @@ function Cobros({ userId }) {
   async function handleCobrar(id) {
     if (!window.confirm('¿Marcar como cobrado?')) return;
     await supabase.from('receivables').update({ estado: 'cobrado' }).eq('id', id);
+    const item = items.find(i => i.id === id);
+    if (item) {
+      await supabase.from('transactions').insert({
+        user_id: userId, monto: item.monto, tipo: 'ingreso',
+        fecha: new Date().toISOString().slice(0, 10),
+        categoria: `Cobro: ${item.cliente}`, cuenta: 'sublime',
+      });
+    }
     load();
   }
 
@@ -529,6 +552,13 @@ function Deudas({ userId }) {
     if (!window.confirm('¿Marcar como pagado?')) return;
     const item = items.find(i => i.id === id);
     await supabase.from('debts').update({ estado: 'pagado', monto_pagado: item.monto_total }).eq('id', id);
+    if (item) {
+      await supabase.from('transactions').insert({
+        user_id: userId, monto: item.monto_total - item.monto_pagado, tipo: 'gasto',
+        fecha: new Date().toISOString().slice(0, 10),
+        categoria: `Pago deuda: ${item.acreedor}`, cuenta: 'sublime',
+      });
+    }
     load();
   }
 
@@ -719,13 +749,195 @@ function Metas({ userId }) {
   );
 }
 
-/* ─── TARJETAS (próximamente) ─── */
-function Tarjetas() {
+/* ─── TARJETAS DE CRÉDITO ─── */
+function Tarjetas({ userId }) {
+  const [cards, setCards] = useState([]);
+  const [expenses, setExpenses] = useState({});
+  const [expanded, setExpanded] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [showCardForm, setShowCardForm] = useState(false);
+  const [showExpForm, setShowExpForm] = useState(null);
+  const [cardForm, setCardForm] = useState({ nombre: '', dia_cierre: '', dia_vencimiento_pago: '' });
+  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10) });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data } = await supabase.from('credit_cards').select('*').eq('user_id', userId).order('created_at');
+    setCards(data || []);
+    setLoading(false);
+  }, [userId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function loadExpenses(cardId) {
+    const { data } = await supabase.from('card_expenses').select('*').eq('card_id', cardId).order('fecha_compra', { ascending: false });
+    setExpenses(prev => ({ ...prev, [cardId]: data || [] }));
+  }
+
+  function toggleExpand(id) {
+    if (expanded === id) { setExpanded(null); return; }
+    setExpanded(id);
+    if (!expenses[id]) loadExpenses(id);
+  }
+
+  async function handleAddCard(e) {
+    e.preventDefault();
+    if (!cardForm.nombre.trim() || !cardForm.dia_cierre || !cardForm.dia_vencimiento_pago) return;
+    await supabase.from('credit_cards').insert({ user_id: userId, nombre: cardForm.nombre.trim(), dia_cierre: parseInt(cardForm.dia_cierre), dia_vencimiento_pago: parseInt(cardForm.dia_vencimiento_pago) });
+    setCardForm({ nombre: '', dia_cierre: '', dia_vencimiento_pago: '' });
+    setShowCardForm(false);
+    load();
+  }
+
+  async function handleAddExp(e, cardId) {
+    e.preventDefault();
+    if (!expForm.descripcion.trim() || !expForm.monto) return;
+    await supabase.from('card_expenses').insert({
+      user_id: userId, card_id: cardId,
+      descripcion: expForm.descripcion.trim(),
+      monto: parseFloat(expForm.monto),
+      fecha_compra: expForm.fecha_compra,
+    });
+    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10) });
+    setShowExpForm(null);
+    loadExpenses(cardId);
+  }
+
+  async function handlePagarTarjeta(expId, cardId) {
+    if (!window.confirm('¿Marcar gasto como pagado y registrar en el panel principal?')) return;
+    const exp = (expenses[cardId] || []).find(e => e.id === expId);
+    await supabase.from('card_expenses').update({ estado: 'pagado' }).eq('id', expId);
+    if (exp) {
+      await supabase.from('transactions').insert({
+        user_id: userId, monto: exp.monto, tipo: 'gasto',
+        fecha: new Date().toISOString().slice(0, 10),
+        categoria: `Tarjeta: ${exp.descripcion}`, cuenta: 'sublime',
+      });
+    }
+    loadExpenses(cardId);
+  }
+
+  async function handleDeleteCard(id) {
+    if (!window.confirm('¿Eliminar esta tarjeta y todos sus gastos?')) return;
+    await supabase.from('card_expenses').delete().eq('card_id', id);
+    await supabase.from('credit_cards').delete().eq('id', id);
+    setCards(prev => prev.filter(c => c.id !== id));
+    if (expanded === id) setExpanded(null);
+  }
+
+  async function handleDeleteExp(expId, cardId) {
+    if (!window.confirm('¿Eliminar este gasto?')) return;
+    await supabase.from('card_expenses').delete().eq('id', expId);
+    loadExpenses(cardId);
+  }
+
   return (
-    <div className="mas-coming">
-      <div className="mas-coming-icon">🪙</div>
-      <div className="mas-coming-title">Tarjetas de Crédito</div>
-      <div className="mas-coming-sub">Próximamente: registrá tus tarjetas y gastos, con seguimiento de fechas de cierre y vencimiento de pago.</div>
+    <div>
+      <div className="mas-section-header">
+        <div>
+          <div className="mas-section-title">Tarjetas de Crédito</div>
+          <div className="mas-section-sub">{cards.length} tarjeta{cards.length !== 1 ? 's' : ''}</div>
+        </div>
+        <button className="mas-add-btn" onClick={() => setShowCardForm(v => !v)}>
+          {showCardForm ? '✕ Cerrar' : '+ Tarjeta'}
+        </button>
+      </div>
+
+      {showCardForm && (
+        <form className="mas-form" onSubmit={handleAddCard}>
+          <div className="mas-form-title">Nueva tarjeta</div>
+          <div className="row">
+            <div className="field">
+              <label>Nombre de la tarjeta</label>
+              <input type="text" value={cardForm.nombre} onChange={e => setCardForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Visa Personal, Bancop..." required />
+            </div>
+          </div>
+          <div className="row">
+            <div className="field">
+              <label>Día de cierre</label>
+              <input type="number" min="1" max="31" value={cardForm.dia_cierre} onChange={e => setCardForm(f => ({ ...f, dia_cierre: e.target.value }))} placeholder="15" required />
+            </div>
+            <div className="field">
+              <label>Día vence pago</label>
+              <input type="number" min="1" max="31" value={cardForm.dia_vencimiento_pago} onChange={e => setCardForm(f => ({ ...f, dia_vencimiento_pago: e.target.value }))} placeholder="25" required />
+            </div>
+          </div>
+          <button className="add-btn" type="submit">Guardar tarjeta</button>
+        </form>
+      )}
+
+      {loading ? <div className="mas-loading">Cargando...</div> : cards.length === 0 ? (
+        <div className="empty">No hay tarjetas registradas. Agregá una arriba.</div>
+      ) : (
+        <ul className="mas-list">
+          {cards.map(card => {
+            const exps = expenses[card.id] || [];
+            const pendTotal = exps.filter(e => e.estado !== 'pagado').reduce((s, e) => s + e.monto, 0);
+            return (
+              <li key={card.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div className="mas-item-icon" style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)' }}>🪙</div>
+                  <div className="meta" style={{ flex: 1 }}>
+                    <div className="cat">{card.nombre}</div>
+                    <div className="sub">Cierre día {card.dia_cierre} · Pago día {card.dia_vencimiento_pago}{pendTotal > 0 ? ` · Pendiente: ${fmt(pendTotal)}` : ''}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="del" style={{ fontSize: 11, color: '#60a5fa', borderColor: 'rgba(96,165,250,0.3)', width: 'auto', padding: '0 8px' }}
+                      onClick={() => { setShowExpForm(showExpForm === card.id ? null : card.id); setExpanded(card.id); if (!expenses[card.id]) loadExpenses(card.id); }}>
+                      + Gasto
+                    </button>
+                    <button className="del" style={{ fontSize: 13 }} onClick={() => toggleExpand(card.id)}>{expanded === card.id ? '▲' : '▼'}</button>
+                    <button className="del" onClick={() => handleDeleteCard(card.id)} title="Eliminar tarjeta">✕</button>
+                  </div>
+                </div>
+
+                {showExpForm === card.id && (
+                  <form className="mas-form" style={{ marginTop: 12, marginBottom: 0 }} onSubmit={e => handleAddExp(e, card.id)}>
+                    <div className="row">
+                      <div className="field">
+                        <label>Descripción del gasto</label>
+                        <input type="text" value={expForm.descripcion} onChange={e => setExpForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Supermercado..." required />
+                      </div>
+                    </div>
+                    <div className="row">
+                      <div className="field">
+                        <label>Monto (₲)</label>
+                        <input type="text" inputMode="numeric" className="num" value={expForm.montoDisplay}
+                          onChange={e => { const r = e.target.value.replace(/\D/g,''); setExpForm(f=>({...f,monto:r,montoDisplay:fmtD(r)})); }}
+                          placeholder="0" required />
+                      </div>
+                      <div className="field">
+                        <label>Fecha</label>
+                        <input type="date" value={expForm.fecha_compra} onChange={e => setExpForm(f => ({ ...f, fecha_compra: e.target.value }))} required />
+                      </div>
+                    </div>
+                    <button className="add-btn" type="submit">Agregar gasto</button>
+                  </form>
+                )}
+
+                {expanded === card.id && (
+                  <ul className="cuota-list">
+                    {(expenses[card.id] || []).length === 0 && <li style={{ color: 'rgba(255,255,255,0.3)', justifyContent: 'center' }}>Sin gastos registrados</li>}
+                    {(expenses[card.id] || []).map(exp => (
+                      <li key={exp.id} className={exp.estado === 'pagado' ? 'pagado' : ''}>
+                        <span className="cuota-fecha" style={{ flex: 1 }}>{exp.descripcion}</span>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginRight: 6 }}>{exp.fecha_compra}</span>
+                        <span className="cuota-monto">{fmt(exp.monto)}</span>
+                        {exp.estado !== 'pagado' ? (
+                          <button className="cuota-pay-btn" onClick={() => handlePagarTarjeta(exp.id, card.id)}>✓ Pagar</button>
+                        ) : (
+                          <span className="cuota-paid-tag">Pagado ✓</span>
+                        )}
+                        <button className="del" style={{ width: 24, height: 24, borderRadius: 7, fontSize: 10 }} onClick={() => handleDeleteExp(exp.id, card.id)}>✕</button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -753,7 +965,7 @@ export default function Mas() {
     switch (activeTab) {
       case 'gastos': return <GastosFijos userId={session.user.id} />;
       case 'cuotas': return <Cuotas userId={session.user.id} />;
-      case 'tarjetas': return <Tarjetas />;
+      case 'tarjetas': return <Tarjetas userId={session.user.id} />;
       case 'cobros': return <Cobros userId={session.user.id} />;
       case 'deudas': return <Deudas userId={session.user.id} />;
       case 'metas': return <Metas userId={session.user.id} />;
