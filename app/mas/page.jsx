@@ -220,6 +220,21 @@ function Cuotas({ userId }) {
 
   async function handlePagarCuota(cuotaId, purchaseId) {
     await supabase.from('installments').update({ estado: 'pagado' }).eq('id', cuotaId);
+
+    // Registrar gasto en el libro principal
+    const purchase = purchases.find(p => p.id === purchaseId);
+    const cuota = (installments[purchaseId] || []).find(c => c.id === cuotaId);
+    if (purchase && cuota) {
+      await supabase.from('transactions').insert({
+        user_id: userId,
+        monto: cuota.monto,
+        tipo: 'gasto',
+        fecha: new Date().toISOString().slice(0, 10),
+        categoria: `${purchase.descripcion} — Cuota ${cuota.numero_cuota}/${purchase.total_cuotas}`,
+        cuenta: purchase.cuenta,
+      });
+    }
+
     loadInstallments(purchaseId);
   }
 
