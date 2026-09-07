@@ -8,11 +8,11 @@ const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
 
 const TABS = [
-  { id: 'gastos', label: 'Gastos Fijos', icon: '🔄' },
-  { id: 'cuotas', label: 'Cuotas', icon: '💳' },
-  { id: 'tarjetas', label: 'Tarjetas', icon: '🪙' },
-  { id: 'cobros', label: 'Cobros', icon: '📥' },
-  { id: 'deudas', label: 'Deudas', icon: '📤' },
+  { id: 'gastos', label: 'Gastos Fijos', icon: '📋' },
+  { id: 'cuotas', label: 'Cuotas', icon: '🗓️' },
+  { id: 'tarjetas', label: 'Tarjetas', icon: '💳' },
+  { id: 'cobros', label: 'Cobros', icon: '💰' },
+  { id: 'deudas', label: 'Deudas', icon: '🤝' },
   { id: 'metas', label: 'Metas', icon: '🎯' },
 ];
 
