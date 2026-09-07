@@ -57,6 +57,7 @@ export default function Home() {
   const [transactions, setTransactions] = useState([]);
   const [filter, setFilter] = useState('todos');
   const [cfg, setCfg] = useState({ c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' });
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
@@ -72,13 +73,19 @@ export default function Home() {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       if (!data.session) router.push('/login');
       else {
         setSession(data.session);
         const c = getUserConfig(data.session.user.email);
         setCfg(c);
         setCuenta(c.c1);
+        const { data: profile } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', data.session.user.id)
+          .single();
+        setIsAdmin(profile?.role === 'admin');
       }
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
@@ -154,7 +161,12 @@ export default function Home() {
           <h1>Libro de caja</h1>
           <p>{cfg.l1} &amp; {cfg.l2}</p>
         </div>
-        <button className="logout-btn" onClick={handleLogout}>Salir</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {isAdmin && (
+            <button className="mas-btn" onClick={() => router.push('/mas')}>☰ Más</button>
+          )}
+          <button className="logout-btn" onClick={handleLogout}>Salir</button>
+        </div>
       </div>
 
       <div className="hero-balance">
