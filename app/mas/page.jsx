@@ -7,6 +7,22 @@ import { supabase } from '../../lib/supabaseClient';
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
 
+function getUserConfig(email) {
+  if (email === 'karendanielasanchezjabs@gmail.com') {
+    return { c1: 'tienda', c2: 'personal', l1: 'Tienda', l2: 'Personal' };
+  }
+  return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' };
+}
+
+function CuentaToggle({ value, onChange, cfg }) {
+  return (
+    <div className="toggle">
+      <button type="button" className={value === cfg.c1 ? 'active sublime' : ''} onClick={() => onChange(cfg.c1)}>{cfg.l1}</button>
+      <button type="button" className={value === cfg.c2 ? 'active personal' : ''} onClick={() => onChange(cfg.c2)}>{cfg.l2}</button>
+    </div>
+  );
+}
+
 const TABS = [
   { id: 'gastos', label: 'Gastos Fijos', icon: '📋' },
   { id: 'cuotas', label: 'Cuotas', icon: '🗓️' },
@@ -17,10 +33,11 @@ const TABS = [
 ];
 
 /* ─── GASTOS FIJOS ─── */
-function GastosFijos({ userId }) {
+function GastosFijos({ userId, userEmail }) {
+  const cfg = getUserConfig(userEmail);
   const [gastos, setGastos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: 'sublime' });
+  const [form, setForm] = useState({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: cfg.c1 });
   const [showForm, setShowForm] = useState(false);
 
   const load = useCallback(async () => {
@@ -100,9 +117,7 @@ function GastosFijos({ userId }) {
             <div className="field">
               <label>Cuenta</label>
               <div className="toggle">
-                <button type="button" className={form.cuenta === 'sublime' ? 'active sublime' : ''} onClick={() => setForm(f => ({ ...f, cuenta: 'sublime' }))}>Sublime</button>
-                <button type="button" className={form.cuenta === 'personal' ? 'active personal' : ''} onClick={() => setForm(f => ({ ...f, cuenta: 'personal' }))}>Personal</button>
-              </div>
+                <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
             </div>
           </div>
           <button className="add-btn" type="submit">Guardar gasto fijo</button>
@@ -120,7 +135,7 @@ function GastosFijos({ userId }) {
               <div className="mas-item-icon" style={{ background: g.activo ? 'rgba(248,113,113,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${g.activo ? 'rgba(248,113,113,0.3)' : 'rgba(255,255,255,0.1)'}` }}>🔄</div>
               <div className="meta">
                 <div className="cat">{g.descripcion}</div>
-                <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === 'sublime' ? 'Sublime' : 'Personal'} · {g.activo ? 'Activo' : 'Pausado'}</div>
+                <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {g.activo ? 'Activo' : 'Pausado'}</div>
               </div>
               <div className="amt neg">{fmt(g.monto)}</div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -153,7 +168,8 @@ function GastosFijos({ userId }) {
 }
 
 /* ─── CUOTAS ─── */
-function Cuotas({ userId }) {
+function Cuotas({ userId, userEmail }) {
+  const cfg = getUserConfig(userEmail);
   const [purchases, setPurchases] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [installments, setInstallments] = useState({});
@@ -163,7 +179,7 @@ function Cuotas({ userId }) {
     descripcion: '', monto: '', montoDisplay: '',
     total_cuotas: '', dia_vencimiento: '',
     fecha_primera_cuota: new Date().toISOString().slice(0, 10),
-    cuenta: 'sublime',
+    cuenta: cfg.c1,
   });
 
   const load = useCallback(async () => {
@@ -319,8 +335,7 @@ function Cuotas({ userId }) {
             <div className="field">
               <label>Cuenta</label>
               <div className="toggle">
-                <button type="button" className={form.cuenta === 'sublime' ? 'active sublime' : ''} onClick={() => setForm(f => ({ ...f, cuenta: 'sublime' }))}>Sublime</button>
-                <button type="button" className={form.cuenta === 'personal' ? 'active personal' : ''} onClick={() => setForm(f => ({ ...f, cuenta: 'personal' }))}>Personal</button>
+                <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
               </div>
             </div>
           </div>
@@ -387,11 +402,12 @@ function Cuotas({ userId }) {
 }
 
 /* ─── COBROS (Cuentas por cobrar) ─── */
-function Cobros({ userId }) {
+function Cobros({ userId, userEmail }) {
+  const cfg = getUserConfig(userEmail);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia' });
+  const [form, setForm] = useState({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -415,8 +431,9 @@ function Cobros({ userId }) {
       monto: parseFloat(form.monto),
       fecha_esperada: form.fecha_esperada || null,
       forma_pago: form.forma_pago,
+      cuenta: form.cuenta,
     });
-    setForm({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia' });
+    setForm({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1 });
     setShowForm(false);
     load();
   }
@@ -429,7 +446,7 @@ function Cobros({ userId }) {
       await supabase.from('transactions').insert({
         user_id: userId, monto: item.monto, tipo: 'ingreso',
         fecha: new Date().toISOString().slice(0, 10),
-        categoria: `Cobro: ${item.cliente}`, cuenta: 'sublime',
+        categoria: `Cobro: ${item.cliente}`, cuenta: item.cuenta || cfg.c1,
       });
     }
     load();
@@ -485,6 +502,10 @@ function Cobros({ userId }) {
                 ))}
               </div>
             </div>
+            <div className="field">
+              <label>Acreditar a</label>
+              <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
+            </div>
           </div>
           <button className="add-btn" type="submit">Guardar</button>
         </form>
@@ -499,7 +520,7 @@ function Cobros({ userId }) {
               <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)' }}>📥</div>
               <div className="meta">
                 <div className="cat">{i.cliente}</div>
-                <div className="sub">{i.fecha_esperada ? `Vence: ${i.fecha_esperada} · ` : ''}{i.forma_pago} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
+                <div className="sub">{i.fecha_esperada ? `Vence: ${i.fecha_esperada} · ` : ''}{i.forma_pago} · {i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
               </div>
               <div className="amt pos">{fmt(i.monto)}</div>
               <div style={{ display: 'flex', gap: 6 }}>
@@ -515,11 +536,12 @@ function Cobros({ userId }) {
 }
 
 /* ─── DEUDAS ─── */
-function Deudas({ userId }) {
+function Deudas({ userId, userEmail }) {
+  const cfg = getUserConfig(userEmail);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '' });
+  const [form, setForm] = useState({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -542,8 +564,9 @@ function Deudas({ userId }) {
       user_id: userId, acreedor: form.acreedor.trim(),
       monto_total: parseFloat(form.monto_total),
       fecha_limite: form.fecha_limite || null,
+      cuenta: form.cuenta,
     });
-    setForm({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '' });
+    setForm({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1 });
     setShowForm(false);
     load();
   }
@@ -556,7 +579,7 @@ function Deudas({ userId }) {
       await supabase.from('transactions').insert({
         user_id: userId, monto: item.monto_total - item.monto_pagado, tipo: 'gasto',
         fecha: new Date().toISOString().slice(0, 10),
-        categoria: `Pago deuda: ${item.acreedor}`, cuenta: 'sublime',
+        categoria: `Pago deuda: ${item.acreedor}`, cuenta: item.cuenta || cfg.c1,
       });
     }
     load();
@@ -599,6 +622,12 @@ function Deudas({ userId }) {
             <div className="field">
               <label>Fecha límite</label>
               <input type="date" value={form.fecha_limite} onChange={e => setForm(f => ({ ...f, fecha_limite: e.target.value }))} />
+            </div>
+          </div>
+          <div className="row">
+            <div className="field">
+              <label>Descontar de</label>
+              <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
             </div>
           </div>
           <button className="add-btn" type="submit">Guardar</button>
@@ -750,7 +779,8 @@ function Metas({ userId }) {
 }
 
 /* ─── TARJETAS DE CRÉDITO ─── */
-function Tarjetas({ userId }) {
+function Tarjetas({ userId, userEmail }) {
+  const cfg = getUserConfig(userEmail);
   const [cards, setCards] = useState([]);
   const [expenses, setExpenses] = useState({});
   const [expanded, setExpanded] = useState(null);
@@ -758,7 +788,7 @@ function Tarjetas({ userId }) {
   const [showCardForm, setShowCardForm] = useState(false);
   const [showExpForm, setShowExpForm] = useState(null);
   const [cardForm, setCardForm] = useState({ nombre: '', dia_cierre: '', dia_vencimiento_pago: '' });
-  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10) });
+  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10), cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -797,8 +827,9 @@ function Tarjetas({ userId }) {
       descripcion: expForm.descripcion.trim(),
       monto: parseFloat(expForm.monto),
       fecha_compra: expForm.fecha_compra,
+      cuenta: expForm.cuenta,
     });
-    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10) });
+    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10), cuenta: cfg.c1 });
     setShowExpForm(null);
     loadExpenses(cardId);
   }
@@ -811,7 +842,7 @@ function Tarjetas({ userId }) {
       await supabase.from('transactions').insert({
         user_id: userId, monto: exp.monto, tipo: 'gasto',
         fecha: new Date().toISOString().slice(0, 10),
-        categoria: `Tarjeta: ${exp.descripcion}`, cuenta: 'sublime',
+        categoria: `Tarjeta: ${exp.descripcion}`, cuenta: exp.cuenta || cfg.c1,
       });
     }
     loadExpenses(cardId);
@@ -911,6 +942,12 @@ function Tarjetas({ userId }) {
                         <input type="date" value={expForm.fecha_compra} onChange={e => setExpForm(f => ({ ...f, fecha_compra: e.target.value }))} required />
                       </div>
                     </div>
+                    <div className="row">
+                      <div className="field">
+                        <label>Descontar de</label>
+                        <CuentaToggle value={expForm.cuenta} onChange={v => setExpForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
+                      </div>
+                    </div>
                     <button className="add-btn" type="submit">Agregar gasto</button>
                   </form>
                 )}
@@ -961,13 +998,14 @@ export default function Mas() {
 
   if (!session || !isAdmin) return null;
 
+  const email = session.user.email;
   const renderTab = () => {
     switch (activeTab) {
-      case 'gastos': return <GastosFijos userId={session.user.id} />;
-      case 'cuotas': return <Cuotas userId={session.user.id} />;
-      case 'tarjetas': return <Tarjetas userId={session.user.id} />;
-      case 'cobros': return <Cobros userId={session.user.id} />;
-      case 'deudas': return <Deudas userId={session.user.id} />;
+      case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} />;
+      case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} />;
+      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} />;
+      case 'cobros': return <Cobros userId={session.user.id} userEmail={email} />;
+      case 'deudas': return <Deudas userId={session.user.id} userEmail={email} />;
       case 'metas': return <Metas userId={session.user.id} />;
       default: return null;
     }
