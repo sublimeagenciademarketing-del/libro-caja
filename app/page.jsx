@@ -8,9 +8,12 @@ const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 
 function getUserConfig(email) {
   if (email === 'karendanielasanchezjabs@gmail.com') {
-    return { c1: 'tienda', c2: 'personal', l1: 'Tienda', l2: 'Personal' };
+    return { c1: 'tienda', c2: 'personal', l1: 'Tienda', l2: 'Personal', single: false };
   }
-  return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' };
+  if (email === 'khelendaihanaj@gmail.com') {
+    return { c1: 'personal', c2: null, l1: 'Personal', l2: null, single: true };
+  }
+  return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal', single: false };
 }
 
 function DonutChart({ a, b }) {
@@ -149,17 +152,17 @@ export default function Home() {
       .reduce((acc, t) => acc + (t.tipo === 'ingreso' ? t.monto : -t.monto), 0);
 
   const total1 = sumFor(cfg.c1);
-  const total2 = sumFor(cfg.c2);
+  const total2 = cfg.single ? 0 : sumFor(cfg.c2);
   const totalGeneral = total1 + total2;
 
-  const txIcon = (t) => t.cuenta === cfg.c1 ? '💼' : '👤';
+  const txIcon = () => '👤';
 
   return (
     <div className="wrap">
       <div className="top-bar">
         <div>
           <h1>Libro de caja</h1>
-          <p>{cfg.l1} &amp; {cfg.l2}</p>
+          <p>{cfg.single ? cfg.l1 : `${cfg.l1} & ${cfg.l2}`}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {isAdmin && (
@@ -176,21 +179,23 @@ export default function Home() {
         </div>
       </div>
 
-      <DonutChart a={total1} b={total2} />
+      {!cfg.single && <DonutChart a={total1} b={total2} />}
 
-      <div className="totals">
+      <div className="totals" style={cfg.single ? { gridTemplateColumns: '1fr' } : {}}>
         <div className="cell sublime">
           <div className="label">{cfg.l1}</div>
           <div className={`amount${total1 < 0 ? ' neg' : ''}`}>
             {total1 < 0 ? '−' : '+'}{fmt(total1)}
           </div>
         </div>
-        <div className="cell personal">
-          <div className="label">{cfg.l2}</div>
-          <div className={`amount${total2 < 0 ? ' neg' : ''}`}>
-            {total2 < 0 ? '−' : '+'}{fmt(total2)}
+        {!cfg.single && (
+          <div className="cell personal">
+            <div className="label">{cfg.l2}</div>
+            <div className={`amount${total2 < 0 ? ' neg' : ''}`}>
+              {total2 < 0 ? '−' : '+'}{fmt(total2)}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <form className="entry" onSubmit={handleAdd}>
@@ -215,13 +220,15 @@ export default function Home() {
               <button type="button" className={tipo === 'gasto' ? 'active gasto' : ''} onClick={() => setTipo('gasto')}>Gasto</button>
             </div>
           </div>
-          <div className="field">
-            <label>Cuenta</label>
-            <div className="toggle">
-              <button type="button" className={cuenta === cfg.c1 ? 'active sublime' : ''} onClick={() => setCuenta(cfg.c1)}>{cfg.l1}</button>
-              <button type="button" className={cuenta === cfg.c2 ? 'active personal' : ''} onClick={() => setCuenta(cfg.c2)}>{cfg.l2}</button>
+          {!cfg.single && (
+            <div className="field">
+              <label>Cuenta</label>
+              <div className="toggle">
+                <button type="button" className={cuenta === cfg.c1 ? 'active sublime' : ''} onClick={() => setCuenta(cfg.c1)}>{cfg.l1}</button>
+                <button type="button" className={cuenta === cfg.c2 ? 'active personal' : ''} onClick={() => setCuenta(cfg.c2)}>{cfg.l2}</button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="row">
           <div className="field">
@@ -233,11 +240,13 @@ export default function Home() {
         <button className="add-btn" type="submit">+ Agregar movimiento</button>
       </form>
 
-      <div className="filters">
-        <button className={filter === 'todos' ? 'active' : ''} onClick={() => setFilter('todos')}>Todos</button>
-        <button className={filter === cfg.c1 ? 'active' : ''} onClick={() => setFilter(cfg.c1)}>{cfg.l1}</button>
-        <button className={filter === cfg.c2 ? 'active' : ''} onClick={() => setFilter(cfg.c2)}>{cfg.l2}</button>
-      </div>
+      {!cfg.single && (
+        <div className="filters">
+          <button className={filter === 'todos' ? 'active' : ''} onClick={() => setFilter('todos')}>Todos</button>
+          <button className={filter === cfg.c1 ? 'active' : ''} onClick={() => setFilter(cfg.c1)}>{cfg.l1}</button>
+          <button className={filter === cfg.c2 ? 'active' : ''} onClick={() => setFilter(cfg.c2)}>{cfg.l2}</button>
+        </div>
+      )}
 
       <p className="list-title">Movimientos</p>
 

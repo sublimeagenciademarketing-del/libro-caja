@@ -9,12 +9,20 @@ const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
 
 function getUserConfig(email) {
   if (email === 'karendanielasanchezjabs@gmail.com') {
-    return { c1: 'tienda', c2: 'personal', l1: 'Tienda', l2: 'Personal' };
+    return { c1: 'tienda', c2: 'personal', l1: 'Tienda', l2: 'Personal', single: false };
   }
-  return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' };
+  if (email === 'khelendaihanaj@gmail.com') {
+    return { c1: 'personal', c2: null, l1: 'Personal', l2: null, single: true };
+  }
+  return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal', single: false };
 }
 
 function CuentaToggle({ value, onChange, cfg }) {
+  if (cfg.single) return (
+    <div className="toggle">
+      <button type="button" className="active sublime" style={{ cursor: 'default' }}>{cfg.l1}</button>
+    </div>
+  );
   return (
     <div className="toggle">
       <button type="button" className={value === cfg.c1 ? 'active sublime' : ''} onClick={() => onChange(cfg.c1)}>{cfg.l1}</button>
