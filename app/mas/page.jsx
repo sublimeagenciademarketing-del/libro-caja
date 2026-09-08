@@ -492,7 +492,7 @@ function Cobros({ userId, userEmail }) {
             <div className="field">
               <label>Forma de pago</label>
               <div className="toggle">
-                {['transferencia','efectivo','cheque'].map(p => (
+                {['transferencia','efectivo'].map(p => (
                   <button key={p} type="button" className={form.forma_pago === p ? 'active sublime' : ''} onClick={() => setForm(f => ({ ...f, forma_pago: p }))}>
                     {p.charAt(0).toUpperCase() + p.slice(1)}
                   </button>
