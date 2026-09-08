@@ -116,8 +116,7 @@ function GastosFijos({ userId, userEmail }) {
           <div className="row">
             <div className="field">
               <label>Cuenta</label>
-              <div className="toggle">
-                <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
+              <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
             </div>
           </div>
           <button className="add-btn" type="submit">Guardar gasto fijo</button>
@@ -334,9 +333,7 @@ function Cuotas({ userId, userEmail }) {
           <div className="row">
             <div className="field">
               <label>Cuenta</label>
-              <div className="toggle">
-                <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
-              </div>
+              <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
             </div>
           </div>
           {form.monto && form.total_cuotas && (
