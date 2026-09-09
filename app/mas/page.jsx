@@ -78,16 +78,17 @@ function Resumen({ userId, cfg }) {
       const y = now.getFullYear(), mo = String(now.getMonth() + 1).padStart(2, '0');
       const mesStart = `${y}-${mo}-01`, mesEnd = `${y}-${mo}-31`;
       const [r1, r2, r3, r4] = await Promise.all([
-        supabase.from('receivables').select('monto').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-        supabase.from('debts').select('monto').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-        supabase.from('installments').select('monto, installment_purchases!inner(user_id)').eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-        supabase.from('recurring_expenses').select('monto').eq('user_id', userId).eq('pagado', false),
+        supabase.from('receivables').select('monto, cuenta').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+        supabase.from('debts').select('monto, cuenta').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+        supabase.from('installments').select('monto, installment_purchases!inner(user_id, cuenta)').eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+        supabase.from('recurring_expenses').select('monto, cuenta').eq('user_id', userId).eq('pagado', false),
       ]);
-      const pendingIncome = (r1.data || []).reduce((s, r) => s + r.monto, 0);
-      const pendingExpense = (r2.data || []).reduce((s, r) => s + r.monto, 0)
-        + (r3.data || []).filter(r => r.installment_purchases).reduce((s, r) => s + r.monto, 0)
-        + (r4.data || []).reduce((s, r) => s + r.monto, 0);
-      setProjection({ pendingIncome, pendingExpense });
+      setProjection({
+        cobros: r1.data || [],
+        deudas: r2.data || [],
+        cuotas: (r3.data || []).filter(r => r.installment_purchases),
+        gastos: r4.data || [],
+      });
 
       setLoading(false);
     }
@@ -97,8 +98,16 @@ function Resumen({ userId, cfg }) {
   const totalAnio = data.reduce((s,m) => s + m.bal, 0);
   const mesesConDatos = data.filter(m => m.tiene);
   const mesActual = new Date().getMonth();
-  const balActual = data[mesActual]?.bal || 0;
-  const projTotal = projection ? balActual + projection.pendingIncome - projection.pendingExpense : null;
+  function calcProjC(c, balActual) {
+    if (!projection) return null;
+    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
+    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0)
+      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + r.monto, 0)
+      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
+    return balActual + inc - exp;
+  }
+  const proj1 = data[mesActual] ? calcProjC(cfg.c1, data[mesActual].bal1) : null;
+  const proj2 = (!cfg.single && data[mesActual]) ? calcProjC(cfg.c2, data[mesActual].bal2) : null;
 
   return (
     <div>
@@ -113,9 +122,16 @@ function Resumen({ userId, cfg }) {
         </div>
       </div>
 
-      {projTotal !== null && (
-        <div className={`donut-proyeccion${projTotal >= 0 ? ' pos' : ' neg'}`} style={{ marginBottom: 12 }}>
-          Proyección {MESES[mesActual]}: {projTotal >= 0 ? '+' : '−'}{fmt(Math.abs(projTotal))}
+      {proj1 !== null && (
+        <div className="donut-cuentas-bal" style={{ marginBottom: 12, padding: '10px 0' }}>
+          <span className={proj1 >= 0 ? 'pos' : 'neg'}>
+            {cfg.l1} proyección {MESES[mesActual]}: {proj1 >= 0 ? '+' : '−'}{fmt(Math.abs(proj1))}
+          </span>
+          {proj2 !== null && (
+            <span className={proj2 >= 0 ? 'pos' : 'neg'}>
+              {cfg.l2} proyección {MESES[mesActual]}: {proj2 >= 0 ? '+' : '−'}{fmt(Math.abs(proj2))}
+            </span>
+          )}
         </div>
       )}
 
@@ -126,14 +142,15 @@ function Resumen({ userId, cfg }) {
           {data.filter(m => m.tiene).map(m => (
             <li key={m.mes}>
               <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
-              {!cfg.single && (
-                <div className="resumen-cuentas">
-                  <span className={m.bal1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {m.bal1 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal1))}</span>
-                  <span className={m.bal2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {m.bal2 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal2))}</span>
-                </div>
-              )}
-              <div className={`resumen-bal ${m.bal >= 0 ? 'pos' : 'neg'}`}>
-                {m.bal >= 0 ? '+' : '−'}{fmt(m.bal)}
+              <div className="resumen-cuentas">
+                {!cfg.single ? (
+                  <>
+                    <span className={m.bal1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {m.bal1 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal1))}</span>
+                    <span className={m.bal2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {m.bal2 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal2))}</span>
+                  </>
+                ) : (
+                  <span className={m.bal >= 0 ? 'pos' : 'neg'}>{m.bal >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal))}</span>
+                )}
               </div>
             </li>
           ))}

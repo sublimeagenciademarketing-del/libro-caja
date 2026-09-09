@@ -71,7 +71,21 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
   const balanceActual = ingTotal - gasTotal;
   const mesNombre = MESES[m - 1];
 
-  const projTotal = projection ? balanceActual + projection.pendingIncome - projection.pendingExpense : null;
+  function calcProjCuenta(c, balActual) {
+    if (!projection) return null;
+    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
+    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0)
+      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + r.monto, 0)
+      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
+    return balActual + inc - exp;
+  }
+  const proj1 = calcProjCuenta(cfg.c1, bal1);
+  const proj2 = cfg.single ? null : calcProjCuenta(cfg.c2, bal2);
+  const projTotal = projection ? balanceActual
+    + projection.cobros.reduce((s, r) => s + r.monto, 0)
+    - projection.deudas.reduce((s, r) => s + r.monto, 0)
+    - projection.cuotas.reduce((s, r) => s + r.monto, 0)
+    - projection.gastos.reduce((s, r) => s + r.monto, 0) : null;
   const projPos = projTotal !== null && projTotal >= 0;
 
   if (cfg.single) {
@@ -135,13 +149,16 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
           <span style={{ color: '#f87171' }}>Gas</span>
         </div>
       </div>
-      <div className="donut-cuentas-bal">
-        <span className={bal1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {bal1 >= 0 ? '+' : '−'}{fmt(Math.abs(bal1))}</span>
-        <span className={bal2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {bal2 >= 0 ? '+' : '−'}{fmt(Math.abs(bal2))}</span>
-      </div>
-      {projTotal !== null && (
-        <div className={`donut-proyeccion${projPos ? ' pos' : ' neg'}`}>
-          Proyección {mesNombre}: {projPos ? '+' : '−'}{fmt(Math.abs(projTotal))}
+      {proj1 !== null && (
+        <div className="donut-cuentas-bal">
+          <span className={proj1 >= 0 ? 'pos' : 'neg'}>
+            {cfg.l1} proyección: {proj1 >= 0 ? '+' : '−'}{fmt(Math.abs(proj1))}
+          </span>
+          {proj2 !== null && (
+            <span className={proj2 >= 0 ? 'pos' : 'neg'}>
+              {cfg.l2} proyección: {proj2 >= 0 ? '+' : '−'}{fmt(Math.abs(proj2))}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -203,16 +220,17 @@ export default function Home() {
     const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
     const mesStart = `${y}-${m}-01`, mesEnd = `${y}-${m}-31`;
     const [r1, r2, r3, r4] = await Promise.all([
-      supabase.from('receivables').select('monto').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-      supabase.from('debts').select('monto').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-      supabase.from('installments').select('monto, installment_purchases!inner(user_id)').eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('monto').eq('user_id', userId).eq('pagado', false),
+      supabase.from('receivables').select('monto, cuenta').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+      supabase.from('debts').select('monto, cuenta').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+      supabase.from('installments').select('monto, installment_purchases!inner(user_id, cuenta)').eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+      supabase.from('recurring_expenses').select('monto, cuenta').eq('user_id', userId).eq('pagado', false),
     ]);
-    const pendingIncome = (r1.data || []).reduce((s, r) => s + r.monto, 0);
-    const pendingExpense = (r2.data || []).reduce((s, r) => s + r.monto, 0)
-      + (r3.data || []).filter(r => r.installment_purchases).reduce((s, r) => s + r.monto, 0)
-      + (r4.data || []).reduce((s, r) => s + r.monto, 0);
-    setProjection({ pendingIncome, pendingExpense });
+    setProjection({
+      cobros: r1.data || [],
+      deudas: r2.data || [],
+      cuotas: (r3.data || []).filter(r => r.installment_purchases),
+      gastos: r4.data || [],
+    });
   }, []);
 
   const loadTransactions = useCallback(async (userId) => {
