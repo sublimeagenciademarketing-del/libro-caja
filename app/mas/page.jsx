@@ -32,6 +32,7 @@ function CuentaToggle({ value, onChange, cfg }) {
 }
 
 const TABS = [
+  { id: 'resumen', label: 'Resumen', icon: '📊' },
   { id: 'gastos', label: 'Gastos Fijos', icon: '📋' },
   { id: 'cuotas', label: 'Cuotas', icon: '🗓️' },
   { id: 'tarjetas', label: 'Tarjetas', icon: '💳' },
@@ -39,6 +40,82 @@ const TABS = [
   { id: 'deudas', label: 'Deudas', icon: '🤝' },
   { id: 'metas', label: 'Metas', icon: '🎯' },
 ];
+
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+/* ─── RESUMEN ANUAL ─── */
+function Resumen({ userId }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const anio = new Date().getFullYear();
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      const { data: txs } = await supabase
+        .from('transactions')
+        .select('monto,tipo,fecha')
+        .eq('user_id', userId)
+        .gte('fecha', `${anio}-01-01`)
+        .lte('fecha', `${anio}-12-31`);
+
+      const meses = Array.from({ length: 12 }, (_, i) => {
+        const key = `${anio}-${String(i+1).padStart(2,'0')}`;
+        const del_mes = (txs || []).filter(t => t.fecha && t.fecha.startsWith(key));
+        const ing = del_mes.filter(t => t.tipo === 'ingreso').reduce((s,t) => s + t.monto, 0);
+        const gas = del_mes.filter(t => t.tipo === 'gasto').reduce((s,t) => s + t.monto, 0);
+        return { mes: i, ing, gas, bal: ing - gas, tiene: del_mes.length > 0 };
+      });
+      setData(meses);
+      setLoading(false);
+    }
+    load();
+  }, [userId]);
+
+  const totalAnio = data.reduce((s,m) => s + m.bal, 0);
+  const mesesConDatos = data.filter(m => m.tiene);
+
+  return (
+    <div>
+      <div className="mas-section-header">
+        <div>
+          <div className="mas-section-title">Resumen {anio}</div>
+          <div className="mas-section-sub">
+            Balance anual: <span style={{ color: totalAnio >= 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>
+              {totalAnio >= 0 ? '+' : '−'}{fmt(totalAnio)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {loading ? <div className="mas-loading">Cargando...</div> : mesesConDatos.length === 0 ? (
+        <div className="empty">No hay movimientos registrados en {anio}.</div>
+      ) : (
+        <ul className="resumen-list">
+          {data.filter(m => m.tiene).map(m => (
+            <li key={m.mes}>
+              <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
+              <div className="resumen-stats">
+                <span style={{ color: '#34d399', fontSize: 12 }}>+{fmt(m.ing)}</span>
+                <span style={{ color: '#f87171', fontSize: 12 }}>−{fmt(m.gas)}</span>
+              </div>
+              <div className={`resumen-bal ${m.bal >= 0 ? 'pos' : 'neg'}`}>
+                {m.bal >= 0 ? '+' : '−'}{fmt(m.bal)}
+              </div>
+            </li>
+          ))}
+          <li className="resumen-total">
+            <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
+            <div className="resumen-stats" />
+            <div className={`resumen-bal ${totalAnio >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 16, fontWeight: 800 }}>
+              {totalAnio >= 0 ? '+' : '−'}{fmt(totalAnio)}
+            </div>
+          </li>
+        </ul>
+      )}
+    </div>
+  );
+}
 
 /* ─── GASTOS FIJOS ─── */
 function GastosFijos({ userId, userEmail }) {
@@ -988,7 +1065,7 @@ function Tarjetas({ userId, userEmail }) {
 export default function Mas() {
   const router = useRouter();
   const [session, setSession] = useState(undefined);
-  const [activeTab, setActiveTab] = useState('gastos');
+  const [activeTab, setActiveTab] = useState('resumen');
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
@@ -1006,6 +1083,7 @@ export default function Mas() {
   const email = session.user.email;
   const renderTab = () => {
     switch (activeTab) {
+      case 'resumen': return <Resumen userId={session.user.id} />;
       case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} />;
       case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} />;
       case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} />;

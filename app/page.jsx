@@ -16,40 +16,79 @@ function getUserConfig(email) {
   return { c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal', single: false };
 }
 
-function DonutChart({ a, b }) {
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+
+function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2 }) {
   const total = Math.abs(a) + Math.abs(b);
+  const r = 46, circ = 2 * Math.PI * r;
   if (total === 0) {
     return (
-      <div className="donut-wrap">
-        <svg width="160" height="160" viewBox="0 0 160 160">
-          <circle cx="80" cy="80" r="60" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" />
-          <text x="80" y="80" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.3)" fontSize="12" fontFamily="Inter,sans-serif">Sin datos</text>
-        </svg>
-      </div>
+      <svg width="110" height="110" viewBox="0 0 110 110">
+        <circle cx="55" cy="55" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="13" />
+        <text x="55" y="55" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.25)" fontSize="10" fontFamily="Inter,sans-serif">—</text>
+      </svg>
     );
   }
-  const r = 60;
-  const circ = 2 * Math.PI * r;
   const aRatio = Math.abs(a) / total;
   const aDash = aRatio * circ;
-  const bDash = (1 - aRatio) * circ;
   return (
-    <div className="donut-wrap">
-      <svg width="160" height="160" viewBox="0 0 160 160" style={{ transform: 'rotate(-90deg)' }}>
-        <circle cx="80" cy="80" r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="18" />
-        <circle cx="80" cy="80" r={r} fill="none" stroke="url(#blueGrad)" strokeWidth="18"
-          strokeDasharray={`${aDash} ${circ - aDash}`} strokeLinecap="round" />
-        <circle cx="80" cy="80" r={r} fill="none" stroke="url(#purpleGrad)" strokeWidth="18"
-          strokeDasharray={`${bDash} ${circ - bDash}`} strokeDashoffset={-aDash} strokeLinecap="round" />
-        <defs>
-          <linearGradient id="blueGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#4facfe" /><stop offset="100%" stopColor="#00f2fe" />
-          </linearGradient>
-          <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#a78bfa" /><stop offset="100%" stopColor="#f472b6" />
-          </linearGradient>
-        </defs>
-      </svg>
+    <svg width="110" height="110" viewBox="0 0 110 110" style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx="55" cy="55" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="13" />
+      <circle cx="55" cy="55" r={r} fill="none" stroke={`url(#grad-a-${idSuffix})`} strokeWidth="13"
+        strokeDasharray={`${aDash} ${circ - aDash}`} strokeLinecap="round" />
+      {Math.abs(b) > 0 && (
+        <circle cx="55" cy="55" r={r} fill="none" stroke={`url(#grad-b-${idSuffix})`} strokeWidth="13"
+          strokeDasharray={`${circ - aDash} ${aDash}`} strokeDashoffset={-aDash} strokeLinecap="round" />
+      )}
+      <defs>
+        <linearGradient id={`grad-a-${idSuffix}`} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={colorA} /><stop offset="100%" stopColor={colorA2 || colorA} />
+        </linearGradient>
+        <linearGradient id={`grad-b-${idSuffix}`} x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor={colorB} /><stop offset="100%" stopColor={colorB2 || colorB} />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+
+function DonutDuo({ total1, total2, cfg, transactions }) {
+  const now = new Date();
+  const m = now.getMonth() + 1;
+  const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
+  const del_mes = transactions.filter(t => t.fecha && t.fecha.startsWith(mesStr));
+  const ingresos = del_mes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto, 0);
+  const gastos = del_mes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto, 0);
+  const balance = ingresos - gastos;
+  const pos = balance >= 0;
+  const mesNombre = MESES[m - 1];
+
+  return (
+    <div className="donut-duo">
+      {!cfg.single && (
+        <div className="donut-col">
+          <div className="donut-label-top">Total general</div>
+          <DonutSmall a={Math.abs(total1)} b={Math.abs(total2)} idSuffix="acc"
+            colorA="#4facfe" colorA2="#00f2fe" colorB="#a78bfa" colorB2="#f472b6" />
+          <div className="donut-legs">
+            <span style={{ color: '#4facfe' }}>{cfg.l1}</span>
+            <span style={{ color: '#a78bfa' }}>{cfg.l2}</span>
+          </div>
+        </div>
+      )}
+      <div className="donut-col">
+        <div className="donut-label-top">Este mes</div>
+        <DonutSmall a={ingresos} b={gastos} idSuffix="mes"
+          colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
+        <div className="donut-legs">
+          <span style={{ color: '#4ade80' }}>Ing</span>
+          <span style={{ color: '#f87171' }}>Gas</span>
+        </div>
+      </div>
+      <div className={`donut-mes-bal${pos ? ' pos' : ' neg'}`}>
+        {mesNombre}: {pos ? '+' : '−'}{fmt(Math.abs(balance))}
+      </div>
     </div>
   );
 }
@@ -179,7 +218,7 @@ export default function Home() {
         </div>
       </div>
 
-      {!cfg.single && <DonutChart a={total1} b={total2} />}
+      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} />
 
       <div className="totals" style={cfg.single ? { gridTemplateColumns: '1fr' } : {}}>
         <div className="cell sublime">

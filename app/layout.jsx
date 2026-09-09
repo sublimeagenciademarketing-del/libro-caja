@@ -5,6 +5,10 @@ export const metadata = {
   description: 'Registro de ingresos y gastos — Sublime & Personal',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Libro de caja' },
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/icon-180.png',
+  },
 };
 
 export const viewport = {
