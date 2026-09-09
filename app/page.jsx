@@ -55,7 +55,7 @@ function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2, size = 9
   );
 }
 
-function DonutDuo({ total1, total2, cfg, transactions }) {
+function DonutDuo({ total1, total2, cfg, transactions, projection }) {
   const now = new Date();
   const m = now.getMonth() + 1;
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
@@ -67,25 +67,41 @@ function DonutDuo({ total1, total2, cfg, transactions }) {
   const gas2 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c2).reduce((s, t) => s + t.monto, 0);
   const ingTotal = del_mes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto, 0);
   const gasTotal = del_mes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto, 0);
-  const balance = ingTotal - gasTotal;
-  const pos = balance >= 0;
+  const bal1 = ing1 - gas1, bal2 = ing2 - gas2;
+  const balanceActual = ingTotal - gasTotal;
   const mesNombre = MESES[m - 1];
+
+  const projTotal = projection ? balanceActual + projection.pendingIncome - projection.pendingExpense : null;
+  const projPos = projTotal !== null && projTotal >= 0;
 
   if (cfg.single) {
     return (
       <div className="donut-duo">
         <div className="donut-col">
+          <div className="donut-label-top">Total</div>
+          <DonutSmall a={Math.abs(total1)} b={0} idSuffix="acc-s"
+            colorA="#4facfe" colorA2="#00f2fe" colorB="#a78bfa" colorB2="#f472b6" />
+          <div className="donut-legs">
+            <span style={{ color: '#4facfe' }}>{cfg.l1}</span>
+          </div>
+        </div>
+        <div className="donut-col">
           <div className="donut-label-top">Este mes</div>
-          <DonutSmall a={ingTotal} b={gasTotal} idSuffix="mes-s" size={110}
+          <DonutSmall a={ingTotal} b={gasTotal} idSuffix="mes-s"
             colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
           <div className="donut-legs">
             <span style={{ color: '#4ade80' }}>Ing</span>
             <span style={{ color: '#f87171' }}>Gas</span>
           </div>
         </div>
-        <div className={`donut-mes-bal${pos ? ' pos' : ' neg'}`}>
-          {mesNombre}: {pos ? '+' : '−'}{fmt(Math.abs(balance))}
+        <div className={`donut-mes-bal${balanceActual >= 0 ? ' pos' : ' neg'}`}>
+          {mesNombre}: {balanceActual >= 0 ? '+' : '−'}{fmt(Math.abs(balanceActual))}
         </div>
+        {projTotal !== null && (
+          <div className={`donut-proyeccion${projPos ? ' pos' : ' neg'}`}>
+            Proyección {mesNombre}: {projPos ? '+' : '−'}{fmt(Math.abs(projTotal))}
+          </div>
+        )}
       </div>
     );
   }
@@ -119,9 +135,15 @@ function DonutDuo({ total1, total2, cfg, transactions }) {
           <span style={{ color: '#f87171' }}>Gas</span>
         </div>
       </div>
-      <div className={`donut-mes-bal${pos ? ' pos' : ' neg'}`}>
-        {mesNombre}: {pos ? '+' : '−'}{fmt(Math.abs(balance))}
+      <div className="donut-cuentas-bal">
+        <span className={bal1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {bal1 >= 0 ? '+' : '−'}{fmt(Math.abs(bal1))}</span>
+        <span className={bal2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {bal2 >= 0 ? '+' : '−'}{fmt(Math.abs(bal2))}</span>
       </div>
+      {projTotal !== null && (
+        <div className={`donut-proyeccion${projPos ? ' pos' : ' neg'}`}>
+          Proyección {mesNombre}: {projPos ? '+' : '−'}{fmt(Math.abs(projTotal))}
+        </div>
+      )}
     </div>
   );
 }
@@ -133,6 +155,7 @@ export default function Home() {
   const [filter, setFilter] = useState('todos');
   const [cfg, setCfg] = useState({ c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' });
   const [isAdmin, setIsAdmin] = useState(false);
+  const [projection, setProjection] = useState(null);
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
@@ -175,6 +198,23 @@ export default function Home() {
     return () => listener.subscription.unsubscribe();
   }, [router]);
 
+  const loadProjection = useCallback(async (userId) => {
+    const now = new Date();
+    const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
+    const mesStart = `${y}-${m}-01`, mesEnd = `${y}-${m}-31`;
+    const [r1, r2, r3, r4] = await Promise.all([
+      supabase.from('receivables').select('monto').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+      supabase.from('debts').select('monto').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+      supabase.from('installments').select('monto, installment_purchases!inner(user_id)').eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+      supabase.from('recurring_expenses').select('monto').eq('user_id', userId).eq('pagado', false),
+    ]);
+    const pendingIncome = (r1.data || []).reduce((s, r) => s + r.monto, 0);
+    const pendingExpense = (r2.data || []).reduce((s, r) => s + r.monto, 0)
+      + (r3.data || []).filter(r => r.installment_purchases).reduce((s, r) => s + r.monto, 0)
+      + (r4.data || []).reduce((s, r) => s + r.monto, 0);
+    setProjection({ pendingIncome, pendingExpense });
+  }, []);
+
   const loadTransactions = useCallback(async (userId) => {
     const { data, error } = await supabase
       .from('transactions')
@@ -186,8 +226,11 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (session) loadTransactions(session.user.id);
-  }, [session, loadTransactions]);
+    if (session) {
+      loadTransactions(session.user.id);
+      loadProjection(session.user.id);
+    }
+  }, [session, loadTransactions, loadProjection]);
 
   useEffect(() => {
     setFecha(new Date().toISOString().slice(0, 10));
@@ -251,7 +294,7 @@ export default function Home() {
         </div>
       </div>
 
-      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} />
+      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} projection={projection} />
 
       <div className="totals" style={cfg.single ? { gridTemplateColumns: '1fr' } : {}}>
         <div className="cell sublime">
