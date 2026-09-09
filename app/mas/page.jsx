@@ -78,10 +78,10 @@ function Resumen({ userId, cfg }) {
       const y = now.getFullYear(), mo = String(now.getMonth() + 1).padStart(2, '0');
       const mesStart = `${y}-${mo}-01`, mesEnd = `${y}-${mo}-31`;
       const [r1, r2, r3, r4] = await Promise.all([
-        supabase.from('receivables').select('monto, cuenta').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-        supabase.from('debts').select('monto, cuenta').eq('user_id', userId).eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-        supabase.from('installments').select('monto, installment_purchases!inner(user_id, cuenta)').eq('pagado', false).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-        supabase.from('recurring_expenses').select('monto, cuenta').eq('user_id', userId).eq('pagado', false),
+        supabase.from('receivables').select('monto, cuenta').eq('user_id', userId).neq('pagado', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+        supabase.from('debts').select('monto, cuenta').eq('user_id', userId).neq('pagado', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
+        supabase.from('installments').select('monto, installment_purchases!inner(user_id, cuenta)').neq('pagado', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+        supabase.from('recurring_expenses').select('monto, cuenta').eq('user_id', userId).neq('pagado', true),
       ]);
       setProjection({
         cobros: r1.data || [],
