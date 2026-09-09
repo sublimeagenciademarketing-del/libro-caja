@@ -204,7 +204,7 @@ export default function Home() {
           <p>{cfg.single ? cfg.l1 : `${cfg.l1} & ${cfg.l2}`}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {isAdmin && (
+          {isAdmin && !cfg.single && (
             <button className="mas-btn" onClick={() => router.push('/mas')}>☰ Más</button>
           )}
           <button className="logout-btn" onClick={handleLogout}>Salir</button>
