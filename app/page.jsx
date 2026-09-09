@@ -19,26 +19,28 @@ function getUserConfig(email) {
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 
-function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2 }) {
+function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2, size = 90 }) {
   const total = Math.abs(a) + Math.abs(b);
-  const r = 46, circ = 2 * Math.PI * r;
+  const cx = size / 2, cy = size / 2;
+  const r = size * 0.38, sw = size * 0.12;
+  const circ = 2 * Math.PI * r;
   if (total === 0) {
     return (
-      <svg width="110" height="110" viewBox="0 0 110 110">
-        <circle cx="55" cy="55" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="13" />
-        <text x="55" y="55" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.25)" fontSize="10" fontFamily="Inter,sans-serif">—</text>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={sw} />
+        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.25)" fontSize={size * 0.1} fontFamily="Inter,sans-serif">—</text>
       </svg>
     );
   }
   const aRatio = Math.abs(a) / total;
   const aDash = aRatio * circ;
   return (
-    <svg width="110" height="110" viewBox="0 0 110 110" style={{ transform: 'rotate(-90deg)' }}>
-      <circle cx="55" cy="55" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="13" />
-      <circle cx="55" cy="55" r={r} fill="none" stroke={`url(#grad-a-${idSuffix})`} strokeWidth="13"
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth={sw} />
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke={`url(#grad-a-${idSuffix})`} strokeWidth={sw}
         strokeDasharray={`${aDash} ${circ - aDash}`} strokeLinecap="round" />
       {Math.abs(b) > 0 && (
-        <circle cx="55" cy="55" r={r} fill="none" stroke={`url(#grad-b-${idSuffix})`} strokeWidth="13"
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={`url(#grad-b-${idSuffix})`} strokeWidth={sw}
           strokeDasharray={`${circ - aDash} ${aDash}`} strokeDashoffset={-aDash} strokeLinecap="round" />
       )}
       <defs>
@@ -58,28 +60,59 @@ function DonutDuo({ total1, total2, cfg, transactions }) {
   const m = now.getMonth() + 1;
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
   const del_mes = transactions.filter(t => t.fecha && t.fecha.startsWith(mesStr));
-  const ingresos = del_mes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto, 0);
-  const gastos = del_mes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto, 0);
-  const balance = ingresos - gastos;
+
+  const ing1 = del_mes.filter(t => t.tipo === 'ingreso' && t.cuenta === cfg.c1).reduce((s, t) => s + t.monto, 0);
+  const gas1 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c1).reduce((s, t) => s + t.monto, 0);
+  const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && t.cuenta === cfg.c2).reduce((s, t) => s + t.monto, 0);
+  const gas2 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c2).reduce((s, t) => s + t.monto, 0);
+  const ingTotal = del_mes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto, 0);
+  const gasTotal = del_mes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto, 0);
+  const balance = ingTotal - gasTotal;
   const pos = balance >= 0;
   const mesNombre = MESES[m - 1];
 
-  return (
-    <div className="donut-duo">
-      {!cfg.single && (
+  if (cfg.single) {
+    return (
+      <div className="donut-duo">
         <div className="donut-col">
-          <div className="donut-label-top">Total general</div>
-          <DonutSmall a={Math.abs(total1)} b={Math.abs(total2)} idSuffix="acc"
-            colorA="#4facfe" colorA2="#00f2fe" colorB="#a78bfa" colorB2="#f472b6" />
+          <div className="donut-label-top">Este mes</div>
+          <DonutSmall a={ingTotal} b={gasTotal} idSuffix="mes-s" size={110}
+            colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
           <div className="donut-legs">
-            <span style={{ color: '#4facfe' }}>{cfg.l1}</span>
-            <span style={{ color: '#a78bfa' }}>{cfg.l2}</span>
+            <span style={{ color: '#4ade80' }}>Ing</span>
+            <span style={{ color: '#f87171' }}>Gas</span>
           </div>
         </div>
-      )}
+        <div className={`donut-mes-bal${pos ? ' pos' : ' neg'}`}>
+          {mesNombre}: {pos ? '+' : '−'}{fmt(Math.abs(balance))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="donut-duo">
       <div className="donut-col">
-        <div className="donut-label-top">Este mes</div>
-        <DonutSmall a={ingresos} b={gastos} idSuffix="mes"
+        <div className="donut-label-top">Total</div>
+        <DonutSmall a={Math.abs(total1)} b={Math.abs(total2)} idSuffix="acc"
+          colorA="#4facfe" colorA2="#00f2fe" colorB="#a78bfa" colorB2="#f472b6" />
+        <div className="donut-legs">
+          <span style={{ color: '#4facfe' }}>{cfg.l1}</span>
+          <span style={{ color: '#a78bfa' }}>{cfg.l2}</span>
+        </div>
+      </div>
+      <div className="donut-col">
+        <div className="donut-label-top">{cfg.l1}</div>
+        <DonutSmall a={ing1} b={gas1} idSuffix="mes1"
+          colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
+        <div className="donut-legs">
+          <span style={{ color: '#4ade80' }}>Ing</span>
+          <span style={{ color: '#f87171' }}>Gas</span>
+        </div>
+      </div>
+      <div className="donut-col">
+        <div className="donut-label-top">{cfg.l2}</div>
+        <DonutSmall a={ing2} b={gas2} idSuffix="mes2"
           colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
         <div className="donut-legs">
           <span style={{ color: '#4ade80' }}>Ing</span>
