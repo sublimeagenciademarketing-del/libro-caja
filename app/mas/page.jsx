@@ -96,6 +96,8 @@ function Resumen({ userId, cfg }) {
   }, [userId, cfg]);
 
   const totalAnio = data.reduce((s,m) => s + m.bal, 0);
+  const totalAnio1 = data.reduce((s,m) => s + m.bal1, 0);
+  const totalAnio2 = data.reduce((s,m) => s + m.bal2, 0);
   const mesesConDatos = data.filter(m => m.tiene);
   const mesActual = new Date().getMonth();
   function calcProjC(c, balActual) {
@@ -119,6 +121,12 @@ function Resumen({ userId, cfg }) {
               {totalAnio >= 0 ? '+' : '−'}{fmt(totalAnio)}
             </span>
           </div>
+          {!cfg.single && (
+            <div style={{ marginTop: 4, fontSize: 12, display: 'flex', gap: 12 }}>
+              <span style={{ color: totalAnio1 >= 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>{cfg.l1}: {totalAnio1 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio1))}</span>
+              <span style={{ color: totalAnio2 >= 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>{cfg.l2}: {totalAnio2 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio2))}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -156,7 +164,12 @@ function Resumen({ userId, cfg }) {
           ))}
           <li className="resumen-total">
             <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
-            <div className="resumen-stats" />
+            {!cfg.single && (
+              <div className="resumen-cuentas">
+                <span className={totalAnio1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {totalAnio1 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio1))}</span>
+                <span className={totalAnio2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {totalAnio2 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio2))}</span>
+              </div>
+            )}
             <div className={`resumen-bal ${totalAnio >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 16, fontWeight: 800 }}>
               {totalAnio >= 0 ? '+' : '−'}{fmt(totalAnio)}
             </div>
