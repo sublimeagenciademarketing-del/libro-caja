@@ -5,6 +5,27 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
+const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
+
+const TIPO_ICON = { cobro: '📥', deuda: '📤', cuota: '🗓️', gasto: '🔄' };
+const TIPO_LABEL = { cobro: 'Cobro', deuda: 'Deuda', cuota: 'Cuota', gasto: 'Gasto fijo' };
+
+function NotifItem({ n, cfg }) {
+  const cuentaLabel = n.cuenta === cfg?.c1 ? cfg?.l1 : (n.cuenta === cfg?.c2 ? cfg?.l2 : n.cuenta);
+  const esIngreso = n.tipo === 'cobro';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, marginBottom: 6 }}>
+      <span style={{ fontSize: 20, flexShrink: 0 }}>{TIPO_ICON[n.tipo]}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.label}</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{TIPO_LABEL[n.tipo]} · {fmtFecha(n.fecha)} · {cuentaLabel}</div>
+      </div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: esIngreso ? '#34d399' : '#f87171', whiteSpace: 'nowrap', flexShrink: 0 }}>
+        {esIngreso ? '+' : '−'}{fmt(n.monto)}
+      </div>
+    </div>
+  );
+}
 
 function getUserConfig(email) {
   if (email === 'karendanielasanchezjabs@gmail.com') {
@@ -73,47 +94,58 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
 
   function calcProjCuenta(c, balActual) {
     if (!projection) return null;
-    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
-    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0)
-      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + r.monto, 0)
-      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
-    return balActual + inc - exp;
+    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
+    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0)
+      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0)
+      + (projection.tarjetas || []).filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
+    return { inc, exp, result: balActual + inc - exp };
   }
   const proj1 = calcProjCuenta(cfg.c1, bal1);
   const proj2 = cfg.single ? null : calcProjCuenta(cfg.c2, bal2);
   const projTotal = projection ? balanceActual
-    + projection.cobros.reduce((s, r) => s + r.monto, 0)
-    - projection.deudas.reduce((s, r) => s + r.monto, 0)
-    - projection.cuotas.reduce((s, r) => s + r.monto, 0)
-    - projection.gastos.reduce((s, r) => s + r.monto, 0) : null;
+    + projection.cobros.reduce((s, r) => s + (r.monto || 0), 0)
+    - projection.deudas.reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+    - projection.cuotas.reduce((s, r) => s + (r.monto || 0), 0)
+    - projection.gastos.reduce((s, r) => s + (r.monto || 0), 0)
+    - (projection.tarjetas || []).reduce((s, r) => s + (r.monto || 0), 0) : null;
   const projPos = projTotal !== null && projTotal >= 0;
 
   if (cfg.single) {
     return (
       <div className="donut-duo">
-        <div className="donut-col">
-          <div className="donut-label-top">Total</div>
-          <DonutSmall a={Math.abs(total1)} b={0} idSuffix="acc-s"
-            colorA="#4facfe" colorA2="#00f2fe" colorB="#a78bfa" colorB2="#f472b6" />
-          <div className="donut-legs">
-            <span style={{ color: '#4facfe' }}>{cfg.l1}</span>
-          </div>
-        </div>
-        <div className="donut-col">
+        <div className="donut-col" style={{ margin: '0 auto' }}>
           <div className="donut-label-top">Este mes</div>
-          <DonutSmall a={ingTotal} b={gasTotal} idSuffix="mes-s"
-            colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
+          <DonutSmall a={ingTotal} b={gasTotal} idSuffix="mes-s" size={110}
+            colorA="#4ade80" colorB="#f87171" />
           <div className="donut-legs">
-            <span style={{ color: '#4ade80' }}>Ing</span>
-            <span style={{ color: '#f87171' }}>Gas</span>
+            <span style={{ color: '#4ade80' }}>Ingresos</span>
+            <span style={{ color: '#f87171' }}>Gastos</span>
           </div>
         </div>
         <div className={`donut-mes-bal${balanceActual >= 0 ? ' pos' : ' neg'}`}>
           {mesNombre}: {balanceActual >= 0 ? '+' : '−'}{fmt(Math.abs(balanceActual))}
         </div>
-        {projTotal !== null && (
-          <div className={`donut-proyeccion${projPos ? ' pos' : ' neg'}`}>
-            Proyección {mesNombre}: {projPos ? '+' : '−'}{fmt(Math.abs(projTotal))}
+        {proj1 !== null && (
+          <div style={{ display: 'flex', gap: 10, margin: '4px 0 8px', width: '100%' }}>
+            <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '3px 12px' }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 17V13M12 17V9M16 17V12"/></svg> Proyección {mesNombre}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
+                <span style={{ fontSize: 12, color: '#34d399', fontWeight: 700 }}>+{fmt(proj1.inc)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
+                <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700 }}>−{fmt(proj1.exp)}</span>
+              </div>
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
+                <span style={{ fontSize: 13, color: proj1.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800 }}>{proj1.result >= 0 ? '+' : '−'}{fmt(Math.abs(proj1.result))}</span>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -134,35 +166,59 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
       <div className="donut-col">
         <div className="donut-label-top">{cfg.l1}</div>
         <DonutSmall a={ing1} b={gas1} idSuffix="mes1"
-          colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
+          colorA="#4ade80" colorB="#f87171" />
         <div className="donut-legs">
-          <span style={{ color: '#4ade80' }}>Ing</span>
-          <span style={{ color: '#f87171' }}>Gas</span>
+          <span style={{ color: '#4ade80' }}>Ingresos</span>
+          <span style={{ color: '#f87171' }}>Gastos</span>
         </div>
       </div>
       <div className="donut-col">
         <div className="donut-label-top">{cfg.l2}</div>
         <DonutSmall a={ing2} b={gas2} idSuffix="mes2"
-          colorA="#4ade80" colorA2="#22d3ee" colorB="#f87171" colorB2="#fb923c" />
+          colorA="#4ade80" colorB="#f87171" />
         <div className="donut-legs">
-          <span style={{ color: '#4ade80' }}>Ing</span>
-          <span style={{ color: '#f87171' }}>Gas</span>
+          <span style={{ color: '#4ade80' }}>Ingresos</span>
+          <span style={{ color: '#f87171' }}>Gastos</span>
         </div>
       </div>
       {proj1 !== null && (
-        <div className="donut-cuentas-bal">
-          <span className={proj1 >= 0 ? 'pos' : 'neg'}>
-            {cfg.l1} proyección: {proj1 >= 0 ? '+' : '−'}{fmt(Math.abs(proj1))}
-          </span>
-          {proj2 !== null && (
-            <span className={proj2 >= 0 ? 'pos' : 'neg'}>
-              {cfg.l2} proyección: {proj2 >= 0 ? '+' : '−'}{fmt(Math.abs(proj2))}
-            </span>
-          )}
+        <div style={{ width: '100%', margin: '4px 0 8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '4px 14px' }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 17V13M12 17V9M16 17V12"/></svg> Proyección {mesNombre}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            {[{ label: cfg.l1, p: proj1 }, ...(proj2 !== null ? [{ label: cfg.l2, p: proj2 }] : [])].map(({ label, p }) => (
+              <div key={label} style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
+                  <span style={{ fontSize: 12, color: '#34d399', fontWeight: 700 }}>+{fmt(p.inc)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
+                  <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700 }}>−{fmt(p.exp)}</span>
+                </div>
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
+                  <span style={{ fontSize: 13, color: p.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800 }}>{p.result >= 0 ? '+' : '−'}{fmt(Math.abs(p.result))}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
+const WA_NUMBER = '595986313704';
+
+function buildCfgFromDB(uc) {
+  const c1 = uc.cuenta1.toLowerCase();
+  const c2 = uc.cuenta2 ? uc.cuenta2.toLowerCase() : null;
+  return { c1, c2, l1: uc.cuenta1, l2: uc.cuenta2 || null, single: !uc.cuenta2 };
 }
 
 export default function Home() {
@@ -170,9 +226,19 @@ export default function Home() {
   const [session, setSession] = useState(undefined);
   const [transactions, setTransactions] = useState([]);
   const [filter, setFilter] = useState('todos');
+  const [mesFiltro, setMesFiltro] = useState(new Date().getMonth());
   const [cfg, setCfg] = useState({ c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' });
   const [isAdmin, setIsAdmin] = useState(false);
+  const [adminBadge, setAdminBadge] = useState(0);
   const [projection, setProjection] = useState(null);
+  const [notifs, setNotifs] = useState(null);
+  const [showNotif, setShowNotif] = useState(false);
+  const [licStatus, setLicStatus] = useState('loading'); // loading | demo | active | expiring | blocked
+  const [diasRestantes, setDiasRestantes] = useState(null);
+  const [showInstall, setShowInstall] = useState(false);
+  const isStandalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches;
+  const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const showInstallBtn = isMobile && !isStandalone;
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
@@ -187,50 +253,145 @@ export default function Home() {
     setMontoDisplay(raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
   }
 
+  async function initUser(s) {
+    setSession(s);
+    const email = s.user.email;
+    const userId = s.user.id;
+
+    // Load or seed user_config
+    const KNOWN_EMAILS = ['sublimeagenciademarketing@gmail.com', 'karendanielasanchezjabs@gmail.com', 'khelendaihanaj@gmail.com'];
+    let { data: uc } = await supabase.from('user_config').select('*').eq('user_id', userId).single();
+    if (!uc) {
+      if (KNOWN_EMAILS.includes(email)) {
+        const hardcoded = getUserConfig(email);
+        const seedData = { user_id: userId, email, plan: hardcoded.single ? 'personal' : 'negocio', cuenta1: hardcoded.l1, cuenta2: hardcoded.l2 || null };
+        await supabase.from('user_config').upsert(seedData);
+        uc = seedData;
+      } else {
+        router.push('/onboarding');
+        return;
+      }
+    }
+    const c = buildCfgFromDB(uc);
+    setCfg(c);
+    setCuenta(c.c1);
+
+    // Admin always active
+    if (email === ADMIN_EMAIL) { setLicStatus('active'); }
+    else {
+      // Check license
+      const { data: lic } = await supabase.from('licencias').select('*').eq('email', email).single();
+      const today = new Date(); today.setHours(0,0,0,0);
+      const todayStr = today.toISOString().slice(0,10);
+      if (lic && lic.activo) {
+        const vence = new Date(lic.fecha_vencimiento); vence.setHours(0,0,0,0);
+        const dias = Math.ceil((vence - today) / 86400000);
+        if (dias < 0) { setLicStatus('blocked'); setDiasRestantes(0); }
+        else if (dias <= 14) { setLicStatus('expiring'); setDiasRestantes(dias); }
+        else { setLicStatus('active'); }
+      } else {
+        // Demo: 7 days from fecha_registro
+        const regDate = new Date(uc.fecha_registro || todayStr); regDate.setHours(0,0,0,0);
+        const diasDemo = 7 - Math.ceil((today - regDate) / 86400000);
+        if (diasDemo <= 0) { setLicStatus('blocked'); setDiasRestantes(0); }
+        else { setLicStatus('demo'); setDiasRestantes(diasDemo); }
+      }
+    }
+
+    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', userId).single();
+    const isAdminUser = profile?.role === 'admin';
+    setIsAdmin(isAdminUser);
+
+    if (isAdminUser) {
+      const lastVisit = localStorage.getItem('adminLastVisit') || '2000-01-01T00:00:00Z';
+      const { data: configs } = await supabase.from('user_config').select('email, fecha_registro');
+      const newCount = (configs || []).filter(c =>
+        c.email !== ADMIN_EMAIL && c.fecha_registro && c.fecha_registro > lastVisit
+      ).length;
+      setAdminBadge(newCount);
+    }
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!data.session) router.push('/login');
-      else {
-        setSession(data.session);
-        const c = getUserConfig(data.session.user.email);
-        setCfg(c);
-        setCuenta(c.c1);
-        const { data: profile } = await supabase
-          .from('user_profiles')
-          .select('role')
-          .eq('id', data.session.user.id)
-          .single();
-        setIsAdmin(profile?.role === 'admin');
-      }
+      else await initUser(data.session);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
       if (!s) router.push('/login');
-      else {
-        setSession(s);
-        const c = getUserConfig(s.user.email);
-        setCfg(c);
-        setCuenta(c.c1);
-      }
     });
     return () => listener.subscription.unsubscribe();
   }, [router]);
 
   const loadProjection = useCallback(async (userId) => {
     const now = new Date();
-    const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0');
-    const mesStart = `${y}-${m}-01`, mesEnd = `${y}-${m}-31`;
-    const [r1, r2, r3, r4] = await Promise.all([
-      supabase.from('receivables').select('monto, cuenta').eq('user_id', userId).not('pagado', 'is', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-      supabase.from('debts').select('monto, cuenta').eq('user_id', userId).not('pagado', 'is', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-      supabase.from('installments').select('monto, installment_purchases!inner(user_id, cuenta)').not('pagado', 'is', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('monto, cuenta').eq('user_id', userId).not('pagado', 'is', true),
+    const y = now.getFullYear(), mo = now.getMonth();
+    const m = String(mo + 1).padStart(2, '0');
+    const lastDay = new Date(y, mo + 1, 0).getDate();
+    const mesStart = `${y}-${m}-01`, mesEnd = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
+    const [r1, r2, r3, r4, r5] = await Promise.all([
+      supabase.from('receivables').select('monto, cuenta, estado').eq('user_id', userId).gte('fecha_esperada', mesStart).lte('fecha_esperada', mesEnd),
+      supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
+      supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+      supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes').eq('user_id', userId).eq('activo', true),
+      supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).eq('estado', 'pendiente').gte('fecha', mesStart).lte('fecha', mesEnd),
     ]);
     setProjection({
-      cobros: r1.data || [],
-      deudas: r2.data || [],
+      cobros: (r1.data || []).filter(r => r.estado !== 'cobrado'),
+      deudas: (r2.data || []).filter(r => r.estado !== 'pagado'),
       cuotas: (r3.data || []).filter(r => r.installment_purchases),
-      gastos: r4.data || [],
+      gastos: (r4.data || []).filter(g => g.pagado_mes !== `${y}-${m}`),
+      tarjetas: r5.data || [],
     });
+  }, []);
+
+  const loadNotifications = useCallback(async (userId, userCfg) => {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const in7 = new Date(today); in7.setDate(in7.getDate() + 7);
+    const in7Str = in7.toISOString().slice(0, 10);
+    const currentMes = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
+    const lastDay = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+
+    const [r1, r2, r3, r4] = await Promise.all([
+      supabase.from('receivables').select('cliente, monto, fecha_esperada, cuenta, estado').eq('user_id', userId),
+      supabase.from('debts').select('acreedor, monto_total, monto_pagado, fecha_limite, cuenta, estado').eq('user_id', userId),
+      supabase.from('installments').select('monto, fecha_vencimiento, estado, installment_purchases!inner(descripcion, user_id, cuenta)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
+      supabase.from('recurring_expenses').select('descripcion, monto, dia_vencimiento, cuenta, pagado_mes').eq('user_id', userId).eq('activo', true),
+    ]);
+
+    const overdue = [], upcoming = [];
+
+    (r1.data || []).filter(r => r.estado !== 'cobrado' && r.fecha_esperada).forEach(r => {
+      const item = { tipo: 'cobro', label: r.cliente, monto: r.monto, fecha: r.fecha_esperada, cuenta: r.cuenta };
+      if (r.fecha_esperada < todayStr) overdue.push(item);
+      else if (r.fecha_esperada <= in7Str) upcoming.push(item);
+    });
+
+    (r2.data || []).filter(r => r.estado !== 'pagado' && r.fecha_limite).forEach(r => {
+      const item = { tipo: 'deuda', label: r.acreedor, monto: (r.monto_total || 0) - (r.monto_pagado || 0), fecha: r.fecha_limite, cuenta: r.cuenta };
+      if (r.fecha_limite < todayStr) overdue.push(item);
+      else if (r.fecha_limite <= in7Str) upcoming.push(item);
+    });
+
+    (r3.data || []).filter(r => r.installment_purchases).forEach(r => {
+      const item = { tipo: 'cuota', label: r.installment_purchases.descripcion, monto: r.monto, fecha: r.fecha_vencimiento, cuenta: r.installment_purchases.cuenta };
+      if (r.fecha_vencimiento < todayStr) overdue.push(item);
+      else if (r.fecha_vencimiento <= in7Str) upcoming.push(item);
+    });
+
+    (r4.data || []).forEach(g => {
+      if (g.pagado_mes === currentMes) return;
+      const dueDay = Math.min(g.dia_vencimiento, lastDay);
+      const dueDate = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(dueDay).padStart(2,'0')}`;
+      const item = { tipo: 'gasto', label: g.descripcion, monto: g.monto, fecha: dueDate, cuenta: g.cuenta };
+      if (dueDate < todayStr) overdue.push(item);
+      else if (dueDate <= in7Str) upcoming.push(item);
+    });
+
+    overdue.sort((a, b) => a.fecha < b.fecha ? -1 : 1);
+    upcoming.sort((a, b) => a.fecha < b.fecha ? -1 : 1);
+    setNotifs({ overdue, upcoming });
   }, []);
 
   const loadTransactions = useCallback(async (userId) => {
@@ -247,14 +408,40 @@ export default function Home() {
     if (session) {
       loadTransactions(session.user.id);
       loadProjection(session.user.id);
+      loadNotifications(session.user.id);
     }
-  }, [session, loadTransactions, loadProjection]);
+  }, [session, loadTransactions, loadProjection, loadNotifications]);
 
   useEffect(() => {
     setFecha(new Date().toISOString().slice(0, 10));
   }, []);
 
-  if (session === undefined) return null;
+  if (session === undefined || licStatus === 'loading') return null;
+
+  const waMsg = (tipo) => {
+    const base = encodeURIComponent(tipo === 'renovar'
+      ? `Hola, quiero renovar mi licencia de MiCaja. Mi email es: ${session?.user?.email}`
+      : `Hola, quiero activar mi licencia de MiCaja. Mi email registrado es: ${session?.user?.email}`);
+    return `https://wa.me/${WA_NUMBER}?text=${base}`;
+  };
+
+  if (licStatus === 'blocked') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: '#0f172a', textAlign: 'center' }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
+        <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0 }}>Acceso bloqueado</h2>
+        <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 14, marginTop: 8, marginBottom: 28, maxWidth: 280 }}>
+          Tu período de prueba o licencia ha vencido. Contactanos para renovar y seguir usando MiCaja.
+        </p>
+        <a href={waMsg('renovar')} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 28px', borderRadius: 14, background: '#25d366', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', fontFamily: 'inherit' }}>
+          📲 Contactar por WhatsApp
+        </a>
+        <button onClick={handleLogout} style={{ marginTop: 20, background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+          Cerrar sesión
+        </button>
+      </div>
+    );
+  }
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -278,7 +465,11 @@ export default function Home() {
     router.push('/login');
   }
 
-  const filtered = filter === 'todos' ? transactions : transactions.filter((t) => t.cuenta === filter);
+  const anioActual = new Date().getFullYear();
+  const mesFiltroStr = `${anioActual}-${String(mesFiltro + 1).padStart(2, '0')}`;
+  const filtered = transactions
+    .filter(t => t.fecha && t.fecha.startsWith(mesFiltroStr))
+    .filter(t => filter === 'todos' || t.cuenta === filter);
 
   const sumFor = (c) =>
     transactions.filter((t) => t.cuenta === c)
@@ -288,22 +479,168 @@ export default function Home() {
   const total2 = cfg.single ? 0 : sumFor(cfg.c2);
   const totalGeneral = total1 + total2;
 
-  const txIcon = () => '👤';
+  const txIcon = (t) => t.tipo === 'ingreso'
+    ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v13M7 10l5 5 5-5"/><path d="M20 20H4"/></svg>
+    : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22V9M7 14l5-5 5 5"/><path d="M20 4H4"/></svg>;
+  const isAutoTx = (t) => /^(Gasto fijo:|Cobro:|Pago deuda:|Tarjeta:|\S.* — Cuota \d+\/\d+)/.test(t.categoria || '');
 
   return (
     <div className="wrap">
+      {licStatus === 'demo' && (
+        <div style={{ background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d="M5 3h14M5 21h14M17 3v4a5 5 0 0 1-10 0V3M7 21v-4a5 5 0 0 1 10 0v4"/></svg> Prueba gratuita · <b style={{ color: '#a5b4fc' }}>{diasRestantes} día{diasRestantes !== 1 ? 's' : ''} restante{diasRestantes !== 1 ? 's' : ''}</b></span>
+          <a href={waMsg('activar')} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#a5b4fc', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Activar →</a>
+        </div>
+      )}
+      {licStatus === 'expiring' && (
+        <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>⚠️ Licencia vence en <b style={{ color: '#fbbf24' }}>{diasRestantes} día{diasRestantes !== 1 ? 's' : ''}</b></span>
+          <a href={waMsg('renovar')} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#fbbf24', fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>Renovar →</a>
+        </div>
+      )}
       <div className="top-bar">
         <div>
-          <h1>Libro de caja</h1>
+          <h1>MiCaja</h1>
           <p>{cfg.single ? cfg.l1 : `${cfg.l1} & ${cfg.l2}`}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="mas-btn" onClick={() => router.push('/mas')}>☰ Más</button>
           {isAdmin && (
-            <button className="mas-btn" onClick={() => router.push('/mas')}>☰ Más</button>
+            <button onClick={() => router.push('/admin')} style={{ position: 'relative', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Panel Admin">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              {adminBadge > 0 && (
+                <span style={{ position: 'absolute', top: -5, right: -5, background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', lineHeight: 1 }}>
+                  {adminBadge}
+                </span>
+              )}
+            </button>
+          )}
+          <button
+            onClick={() => setShowNotif(v => !v)}
+            style={{ position: 'relative', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 18 }}
+            title="Notificaciones"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            {notifs && (notifs.overdue.length + notifs.upcoming.length) > 0 && (
+              <span style={{ position: 'absolute', top: -5, right: -5, background: '#ef4444', color: '#fff', borderRadius: 999, fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', lineHeight: 1 }}>
+                {notifs.overdue.length + notifs.upcoming.length}
+              </span>
+            )}
+          </button>
+          {showInstallBtn && (
+            <button onClick={() => setShowInstall(v => !v)} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 10, height: 38, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', cursor: 'pointer', boxShadow: '0 2px 12px rgba(99,102,241,0.35)' }} title="Instalar en pantalla de inicio">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 6v8M9 11l3 3 3-3"/></svg>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>Instalar</span>
+            </button>
           )}
           <button className="logout-btn" onClick={handleLogout}>Salir</button>
         </div>
       </div>
+
+      {showInstall && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)' }} onClick={() => setShowInstall(false)}>
+          <div style={{ position: 'absolute', top: 64, right: 12, width: 'min(92vw, 340px)', background: '#0f1f35', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 6v8M9 11l3 3 3-3"/></svg>
+                </div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Instalar MiCaja</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Accedé como una app desde tu celular</div>
+                </div>
+              </div>
+              <button onClick={() => setShowInstall(false)} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.5)', width: 28, height: 28, borderRadius: 8, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 12, padding: '10px 14px', margin: '14px 0 10px', fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>
+              Instalándola en tu pantalla de inicio, podés abrirla igual que cualquier app — sin buscarla en el navegador cada vez.
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(165,180,252,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🍎</div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc' }}>iPhone / iPad (Safari)</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {[
+                  { n: 1, text: 'Abrí esta página en', bold: 'Safari' },
+                  { n: 2, text: 'Tocá el ícono', bold: '⬆ Compartir', sub: '(cuadrado con flecha, en la barra de abajo)' },
+                  { n: 3, text: 'Elegí', bold: '"Agregar a pantalla de inicio"' },
+                  { n: 4, text: 'Tocá', bold: '"Agregar"', sub: '(arriba a la derecha)' },
+                ].map(s => (
+                  <div key={s.n} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span style={{ minWidth: 20, height: 20, borderRadius: 6, background: 'rgba(165,180,252,0.15)', color: '#a5b4fc', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</span>
+                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>{s.text} <b style={{ color: '#fff' }}>{s.bold}</b>{s.sub ? <span style={{ color: 'rgba(255,255,255,0.35)' }}> {s.sub}</span> : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', marginBottom: 12 }} />
+
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
+                <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(52,211,153,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#34d399' }}>Android (Chrome)</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                {[
+                  { n: 1, text: 'Abrí esta página en', bold: 'Chrome' },
+                  { n: 2, text: 'Tocá el menú', bold: '⋮', sub: '(tres puntos, arriba a la derecha)' },
+                  { n: 3, text: 'Elegí', bold: '"Agregar a pantalla de inicio"' },
+                  { n: 4, text: 'Tocá', bold: '"Agregar"' },
+                ].map(s => (
+                  <div key={s.n} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                    <span style={{ minWidth: 20, height: 20, borderRadius: 6, background: 'rgba(52,211,153,0.12)', color: '#34d399', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</span>
+                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>{s.text} <b style={{ color: '#fff' }}>{s.bold}</b>{s.sub ? <span style={{ color: 'rgba(255,255,255,0.35)' }}> {s.sub}</span> : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNotif && notifs && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }} onClick={() => setShowNotif(false)}>
+          <div
+            style={{ position: 'absolute', top: 64, right: 12, width: 'min(92vw, 360px)', maxHeight: '80vh', overflowY: 'auto', background: '#0f2035', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 20, padding: 16, boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>🔔 Notificaciones</span>
+              <button onClick={() => setShowNotif(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 20, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>✕</button>
+            </div>
+
+            {notifs.overdue.length === 0 && notifs.upcoming.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13, padding: '20px 0' }}>Sin notificaciones</div>
+            )}
+
+            {notifs.overdue.length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(239,68,68,0.35)' }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Vencidos</span>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(239,68,68,0.35)' }} />
+                </div>
+                {notifs.overdue.map((n, i) => <NotifItem key={`o${i}`} n={n} cfg={cfg} />)}
+              </>
+            )}
+
+            {notifs.upcoming.length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: `${notifs.overdue.length > 0 ? 12 : 0}px 0 8px` }}>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(234,179,8,0.35)' }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Próximos 7 días</span>
+                  <div style={{ flex: 1, height: 1, background: 'rgba(234,179,8,0.35)' }} />
+                </div>
+                {notifs.upcoming.map((n, i) => <NotifItem key={`u${i}`} n={n} cfg={cfg} />)}
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="hero-balance">
         <div className="hero-label">Balance total</div>
@@ -314,22 +651,20 @@ export default function Home() {
 
       <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} projection={projection} />
 
-      <div className="totals" style={cfg.single ? { gridTemplateColumns: '1fr' } : {}}>
+      {!cfg.single && <div className="totals">
         <div className="cell sublime">
           <div className="label">{cfg.l1}</div>
           <div className={`amount${total1 < 0 ? ' neg' : ''}`}>
             {total1 < 0 ? '−' : '+'}{fmt(total1)}
           </div>
         </div>
-        {!cfg.single && (
           <div className="cell personal">
             <div className="label">{cfg.l2}</div>
             <div className={`amount${total2 < 0 ? ' neg' : ''}`}>
               {total2 < 0 ? '−' : '+'}{fmt(total2)}
             </div>
           </div>
-        )}
-      </div>
+      </div>}
 
       <form className="entry" onSubmit={handleAdd}>
         <div className="entry-title">Nuevo movimiento</div>
@@ -382,6 +717,16 @@ export default function Home() {
       )}
 
       <p className="list-title">Movimientos</p>
+      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4, marginBottom: 10, scrollbarWidth: 'none' }}>
+        {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((mes, i) => (
+          <button key={i} onClick={() => setMesFiltro(i)} style={{
+            flexShrink: 0, padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+            background: mesFiltro === i ? 'rgba(99,179,237,0.25)' : 'rgba(255,255,255,0.07)',
+            color: mesFiltro === i ? '#90cdf4' : 'rgba(255,255,255,0.4)',
+            outline: mesFiltro === i ? '1px solid rgba(99,179,237,0.4)' : '1px solid transparent',
+          }}>{mes}</button>
+        ))}
+      </div>
 
       {filtered.length === 0 ? (
         <div className="empty">Todavía no hay movimientos cargados.</div>
@@ -392,12 +737,15 @@ export default function Home() {
               <div className={`tx-icon ${t.cuenta === cfg.c1 ? 'sublime' : 'personal'}`}>{txIcon(t)}</div>
               <div className="meta">
                 <div className="cat">{t.categoria}</div>
-                <div className="sub">{t.fecha} · {t.cuenta === cfg.c1 ? cfg.l1 : cfg.l2}</div>
+                <div className="sub">{fmtFecha(t.fecha)} · {t.cuenta === cfg.c1 ? cfg.l1 : cfg.l2}</div>
               </div>
               <div className={`amt${t.tipo === 'ingreso' ? ' pos' : ' neg'}`}>
                 {t.tipo === 'ingreso' ? '+' : '−'} {fmt(t.monto)}
               </div>
-              <button className="del" onClick={() => handleDelete(t.id)} title="Eliminar">✕</button>
+              {isAutoTx(t)
+                ? <div className="del" style={{ opacity: 0.2, cursor: 'not-allowed' }} title="Revertir desde el módulo correspondiente">✕</div>
+                : <button className="del" onClick={() => handleDelete(t.id)} title="Eliminar">✕</button>
+              }
             </li>
           ))}
         </ul>

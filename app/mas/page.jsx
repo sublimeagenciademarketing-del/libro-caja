@@ -6,6 +6,7 @@ import { supabase } from '../../lib/supabaseClient';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
+const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
 
 function getUserConfig(email) {
   if (email === 'karendanielasanchezjabs@gmail.com') {
@@ -32,13 +33,14 @@ function CuentaToggle({ value, onChange, cfg }) {
 }
 
 const TABS = [
-  { id: 'resumen', label: 'Resumen', icon: '📊' },
-  { id: 'gastos', label: 'Gastos Fijos', icon: '📋' },
-  { id: 'cuotas', label: 'Cuotas', icon: '🗓️' },
-  { id: 'tarjetas', label: 'Tarjetas', icon: '💳' },
-  { id: 'cobros', label: 'Cobros', icon: '💰' },
-  { id: 'deudas', label: 'Deudas', icon: '🤝' },
-  { id: 'metas', label: 'Metas', icon: '🎯' },
+  { id: 'resumen', label: 'Resumen', grad: ['#6366f1','#8b5cf6'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 17V13M12 17V9M16 17V12"/></svg> },
+  { id: 'gastos', label: 'Gastos Fijos', grad: ['#f59e0b','#ef4444'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg> },
+  { id: 'cuotas', label: 'Cuotas', grad: ['#0ea5e9','#06b6d4'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg> },
+  { id: 'tarjetas', label: 'Tarjetas', grad: ['#f59e0b','#f97316'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg> },
+  { id: 'cobros', label: 'Cobros', grad: ['#10b981','#059669'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/><path d="M9 3.6A9 9 0 0 1 21 12"/></svg> },
+  { id: 'deudas', label: 'Deudas', grad: ['#ec4899','#8b5cf6'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg> },
+  { id: 'metas', label: 'Metas', grad: ['#ef4444','#f97316'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="#fff"/></svg> },
+  { id: 'perfil', label: 'Perfil', grad: ['#6366f1','#8b5cf6'], svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg> },
 ];
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -75,19 +77,21 @@ function Resumen({ userId, cfg }) {
 
       // proyección mes actual
       const now = new Date();
-      const y = now.getFullYear(), mo = String(now.getMonth() + 1).padStart(2, '0');
-      const mesStart = `${y}-${mo}-01`, mesEnd = `${y}-${mo}-31`;
+      const y = now.getFullYear(), mo = now.getMonth();
+      const mStr = String(mo + 1).padStart(2, '0');
+      const lastDay = new Date(y, mo + 1, 0).getDate();
+      const mesStart = `${y}-${mStr}-01`, mesEnd = `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`;
       const [r1, r2, r3, r4] = await Promise.all([
-        supabase.from('receivables').select('monto, cuenta').eq('user_id', userId).not('pagado', 'is', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-        supabase.from('debts').select('monto, cuenta').eq('user_id', userId).not('pagado', 'is', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd),
-        supabase.from('installments').select('monto, installment_purchases!inner(user_id, cuenta)').not('pagado', 'is', true).gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-        supabase.from('recurring_expenses').select('monto, cuenta').eq('user_id', userId).not('pagado', 'is', true),
+        supabase.from('receivables').select('monto, cuenta, estado').eq('user_id', userId).gte('fecha_esperada', mesStart).lte('fecha_esperada', mesEnd),
+        supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
+        supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+        supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes').eq('user_id', userId).eq('activo', true),
       ]);
       setProjection({
-        cobros: r1.data || [],
-        deudas: r2.data || [],
+        cobros: (r1.data || []).filter(r => r.estado !== 'cobrado'),
+        deudas: (r2.data || []).filter(r => r.estado !== 'pagado'),
         cuotas: (r3.data || []).filter(r => r.installment_purchases),
-        gastos: r4.data || [],
+        gastos: (r4.data || []).filter(g => g.pagado_mes !== `${y}-${mStr}`),
       });
 
       setLoading(false);
@@ -102,10 +106,10 @@ function Resumen({ userId, cfg }) {
   const mesActual = new Date().getMonth();
   function calcProjC(c, balActual) {
     if (!projection) return null;
-    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
-    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0)
-      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + r.monto, 0)
-      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + r.monto, 0);
+    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
+    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0)
+      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
     return balActual + inc - exp;
   }
   const proj1 = data[mesActual] ? calcProjC(cfg.c1, data[mesActual].bal1) : null;
@@ -116,17 +120,6 @@ function Resumen({ userId, cfg }) {
       <div className="mas-section-header">
         <div>
           <div className="mas-section-title">Resumen {anio}</div>
-          <div className="mas-section-sub">
-            Balance anual: <span style={{ color: totalAnio >= 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>
-              {totalAnio >= 0 ? '+' : '−'}{fmt(totalAnio)}
-            </span>
-          </div>
-          {!cfg.single && (
-            <div style={{ marginTop: 4, fontSize: 12, display: 'flex', gap: 12 }}>
-              <span style={{ color: totalAnio1 >= 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>{cfg.l1}: {totalAnio1 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio1))}</span>
-              <span style={{ color: totalAnio2 >= 0 ? '#34d399' : '#f87171', fontWeight: 700 }}>{cfg.l2}: {totalAnio2 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio2))}</span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -181,12 +174,13 @@ function Resumen({ userId, cfg }) {
 }
 
 /* ─── GASTOS FIJOS ─── */
-function GastosFijos({ userId, userEmail }) {
-  const cfg = getUserConfig(userEmail);
+function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
+  const cfg = cfgProp || getUserConfig(userEmail);
   const [gastos, setGastos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: cfg.c1 });
   const [showForm, setShowForm] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -277,37 +271,80 @@ function GastosFijos({ userId, userEmail }) {
         <div className="empty">No hay gastos fijos registrados.</div>
       ) : (
         <ul className="mas-list">
-          {gastos.map(g => (
-            <li key={g.id} className={g.activo ? '' : 'inactive'}>
-              <div className="mas-item-icon" style={{ background: g.activo ? 'rgba(248,113,113,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${g.activo ? 'rgba(248,113,113,0.3)' : 'rgba(255,255,255,0.1)'}` }}>🔄</div>
-              <div className="meta">
-                <div className="cat">{g.descripcion}</div>
-                <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {g.activo ? 'Activo' : 'Pausado'}</div>
-              </div>
-              <div className="amt neg">{fmt(g.monto)}</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {g.activo && (
-                  <button className="del" style={{ fontSize: 11, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', width: 'auto', padding: '0 8px' }}
-                    title="Pagar este mes"
-                    onClick={async () => {
-                      if (!window.confirm(`¿Registrar pago de ${g.descripcion}?`)) return;
-                      await supabase.from('transactions').insert({
-                        user_id: userId, monto: g.monto, tipo: 'gasto',
-                        fecha: new Date().toISOString().slice(0, 10),
-                        categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta,
-                      });
-                      alert('Pago registrado en el panel principal.');
-                    }}>
-                    Pagar
-                  </button>
+          {gastos.map(g => {
+            const isExp = expandedId === g.id;
+            const now = new Date();
+            const mesCurrent = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+            const pagadoEsteMes = g.pagado_mes === mesCurrent;
+            return (
+              <li key={g.id} className={g.activo ? '' : 'inactive'}
+                style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
+                onClick={() => setExpandedId(isExp ? null : g.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="mas-item-icon" style={{ background: pagadoEsteMes ? 'rgba(52,211,153,0.15)' : g.activo ? 'rgba(248,113,113,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${pagadoEsteMes ? 'rgba(52,211,153,0.3)' : g.activo ? 'rgba(248,113,113,0.3)' : 'rgba(255,255,255,0.1)'}`, flexShrink: 0 }}>
+                    {pagadoEsteMes
+                      ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+                      : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>}
+                  </div>
+                  <div className="meta">
+                    <div className="cat">{g.descripcion}</div>
+                    <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {pagadoEsteMes ? '✓ Pagado este mes' : g.activo ? 'Pendiente' : 'Pausado'}</div>
+                  </div>
+                  <div className="amt" style={{ flexShrink: 0, color: pagadoEsteMes ? '#34d399' : '#f87171' }}>{fmt(g.monto)}</div>
+                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
+                </div>
+                {isExp && (
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
+                    onClick={e => e.stopPropagation()}>
+                    {g.activo && !pagadoEsteMes && (
+                      <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                        onClick={async () => {
+                          if (!window.confirm(`¿Registrar pago de ${g.descripcion}?`)) return;
+                          const now2 = new Date();
+                          const mes = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
+                          await Promise.all([
+                            supabase.from('transactions').insert({
+                              user_id: userId, monto: g.monto, tipo: 'gasto',
+                              fecha: now2.toISOString().slice(0, 10),
+                              categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta,
+                            }),
+                            supabase.from('recurring_expenses').update({ pagado_mes: mes }).eq('id', g.id),
+                          ]);
+                          load();
+                          setExpandedId(null);
+                        }}>
+                        ✓ Pagar
+                      </button>
+                    )}
+                    {pagadoEsteMes && (
+                      <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                        onClick={async () => {
+                          if (!window.confirm(`¿Revertir el pago de ${g.descripcion}?`)) return;
+                          const now2 = new Date();
+                          const mes = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
+                          const { data: txs } = await supabase.from('transactions')
+                            .select('id').eq('user_id', userId)
+                            .eq('categoria', `Gasto fijo: ${g.descripcion}`)
+                            .gte('fecha', `${mes}-01`).order('fecha', { ascending: false }).limit(1);
+                          await Promise.all([
+                            supabase.from('recurring_expenses').update({ pagado_mes: null }).eq('id', g.id),
+                            txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                          ]);
+                          load();
+                          setExpandedId(null);
+                        }}>
+                        ↩ Revertir
+                      </button>
+                    )}
+                    <button className="del" title={g.activo ? 'Pausar' : 'Activar'} onClick={() => handleToggle(g.id, g.activo)} style={{ fontSize: 13 }}>
+                      {g.activo ? '⏸' : '▶'}
+                    </button>
+                    <button className="del" onClick={() => handleDelete(g.id)} title="Eliminar">✕</button>
+                  </div>
                 )}
-                <button className="del" title={g.activo ? 'Pausar' : 'Activar'} onClick={() => handleToggle(g.id, g.activo)} style={{ fontSize: 13 }}>
-                  {g.activo ? '⏸' : '▶'}
-                </button>
-                <button className="del" onClick={() => handleDelete(g.id)} title="Eliminar">✕</button>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -315,8 +352,8 @@ function GastosFijos({ userId, userEmail }) {
 }
 
 /* ─── CUOTAS ─── */
-function Cuotas({ userId, userEmail }) {
-  const cfg = getUserConfig(userEmail);
+function Cuotas({ userId, userEmail, cfg: cfgProp }) {
+  const cfg = cfgProp || getUserConfig(userEmail);
   const [purchases, setPurchases] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [installments, setInstallments] = useState({});
@@ -506,7 +543,7 @@ function Cuotas({ userId, userEmail }) {
             return (
               <li key={p.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div className="mas-item-icon" style={{ background: 'rgba(192,132,252,0.15)', border: '1px solid rgba(192,132,252,0.3)' }}>💳</div>
+                  <div className="mas-item-icon" style={{ background: 'rgba(192,132,252,0.15)', border: '1px solid rgba(192,132,252,0.3)' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{p.descripcion}</div>
                     <div className="sub">{pagadas}/{p.total_cuotas} cuotas · {fmt(p.monto_por_cuota)}/mes</div>
@@ -522,20 +559,42 @@ function Cuotas({ userId, userEmail }) {
                   <div className="cuota-bar" style={{ width: `${pct}%` }} />
                 </div>
                 {expanded === p.id && (
+                  <>
+                    {(() => {
+                      const pendientes = cuotas.filter(c => c.estado === 'pendiente');
+                      const totalRestante = pendientes.reduce((s, c) => s + c.monto, 0);
+                      return pendientes.length > 0 ? (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px 6px', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 8 }}>
+                          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>{pendientes.length} cuota{pendientes.length !== 1 ? 's' : ''} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#f87171' }}>Total restante: {fmt(totalRestante)}</span>
+                        </div>
+                      ) : null;
+                    })()}
                   <ul className="cuota-list">
                     {cuotas.map(c => (
                       <li key={c.id} className={c.estado === 'pagado' ? 'pagado' : ''}>
                         <span className="cuota-num">#{c.numero_cuota}</span>
-                        <span className="cuota-fecha">{c.fecha_vencimiento}</span>
+                        <span className="cuota-fecha">{fmtFecha(c.fecha_vencimiento)}</span>
                         <span className="cuota-monto">{fmt(c.monto)}</span>
                         {c.estado === 'pendiente' ? (
                           <button className="cuota-pay-btn" onClick={() => handlePagarCuota(c.id, p.id)}>✓ Pagar</button>
                         ) : (
-                          <span className="cuota-paid-tag">Pagado ✓</span>
+                          <button className="cuota-pay-btn" style={{ background: 'rgba(251,146,60,0.15)', borderColor: 'rgba(251,146,60,0.3)', color: '#fb923c' }}
+                            onClick={async () => {
+                              if (!window.confirm(`¿Revertir pago de cuota #${c.numero_cuota}?`)) return;
+                              const cat = `${p.descripcion} — Cuota ${c.numero_cuota}/${p.total_cuotas}`;
+                              const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', cat).order('fecha', { ascending: false }).limit(1);
+                              await Promise.all([
+                                supabase.from('installments').update({ estado: 'pendiente' }).eq('id', c.id),
+                                txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                              ]);
+                              loadInstallments(p.id);
+                            }}>↩ Revertir</button>
                         )}
                       </li>
                     ))}
                   </ul>
+                  </>
                 )}
               </li>
             );
@@ -547,11 +606,12 @@ function Cuotas({ userId, userEmail }) {
 }
 
 /* ─── COBROS (Cuentas por cobrar) ─── */
-function Cobros({ userId, userEmail }) {
-  const cfg = getUserConfig(userEmail);
+function Cobros({ userId, userEmail, cfg: cfgProp }) {
+  const cfg = cfgProp || getUserConfig(userEmail);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
   const [form, setForm] = useState({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
@@ -660,20 +720,50 @@ function Cobros({ userId, userEmail }) {
         <div className="empty">No hay cobros registrados.</div>
       ) : (
         <ul className="mas-list">
-          {items.map(i => (
-            <li key={i.id} className={i.estado === 'cobrado' ? 'inactive' : ''}>
-              <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)' }}>📥</div>
-              <div className="meta">
-                <div className="cat">{i.cliente}</div>
-                <div className="sub">{i.fecha_esperada ? `Vence: ${i.fecha_esperada} · ` : ''}{i.forma_pago} · {i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
-              </div>
-              <div className="amt pos">{fmt(i.monto)}</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {i.estado === 'pendiente' && <button className="del" style={{ fontSize: 12, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => handleCobrar(i.id)} title="Marcar cobrado">✓</button>}
-                <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>
-              </div>
-            </li>
-          ))}
+          {items.map(i => {
+            const isExp = expandedId === i.id;
+            return (
+              <li key={i.id} className={i.estado === 'cobrado' ? 'inactive' : ''}
+                style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
+                onClick={() => setExpandedId(isExp ? null : i.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v13M7 10l5 5 5-5"/><path d="M20 20H4"/></svg></div>
+                  <div className="meta">
+                    <div className="cat">{i.cliente}</div>
+                    <div className="sub">{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
+                  </div>
+                  <div className="amt pos" style={{ flexShrink: 0 }}>{fmt(i.monto)}</div>
+                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
+                </div>
+                {isExp && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
+                    onClick={e => e.stopPropagation()}>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>
+                      {i.forma_pago} {i.fecha_esperada ? `· Vence: ${fmtFecha(i.fecha_esperada)}` : ''}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      {i.estado !== 'cobrado' ? (
+                        <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                          onClick={() => handleCobrar(i.id)}>✓ Cobrar</button>
+                      ) : (
+                        <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                          onClick={async () => {
+                            if (!window.confirm(`¿Revertir cobro de ${i.cliente}?`)) return;
+                            const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Cobro: ${i.cliente}`).order('fecha', { ascending: false }).limit(1);
+                            await Promise.all([
+                              supabase.from('receivables').update({ estado: 'pendiente' }).eq('id', i.id),
+                              txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                            ]);
+                            load();
+                          }}>↩ Revertir</button>
+                      )}
+                      <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -681,11 +771,12 @@ function Cobros({ userId, userEmail }) {
 }
 
 /* ─── DEUDAS ─── */
-function Deudas({ userId, userEmail }) {
-  const cfg = getUserConfig(userEmail);
+function Deudas({ userId, userEmail, cfg: cfgProp }) {
+  const cfg = cfgProp || getUserConfig(userEmail);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
   const [form, setForm] = useState({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
@@ -783,20 +874,52 @@ function Deudas({ userId, userEmail }) {
         <div className="empty">No hay deudas registradas.</div>
       ) : (
         <ul className="mas-list">
-          {items.map(i => (
-            <li key={i.id} className={i.estado === 'pagado' ? 'inactive' : ''}>
-              <div className="mas-item-icon" style={{ background: 'rgba(251,146,60,0.15)', border: '1px solid rgba(251,146,60,0.3)' }}>📤</div>
-              <div className="meta">
-                <div className="cat">{i.acreedor}</div>
-                <div className="sub">{i.fecha_limite ? `Límite: ${i.fecha_limite} · ` : ''}{i.estado === 'pagado' ? '✓ Pagado' : 'Pendiente'}</div>
-              </div>
-              <div className="amt neg">{fmt(i.monto_total - i.monto_pagado)}</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {i.estado === 'pendiente' && <button className="del" style={{ fontSize: 12, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => handlePagar(i.id)} title="Marcar pagado">✓</button>}
-                <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>
-              </div>
-            </li>
-          ))}
+          {items.map(i => {
+            const isExp = expandedId === i.id;
+            return (
+              <li key={i.id} className={i.estado === 'pagado' ? 'inactive' : ''}
+                style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
+                onClick={() => setExpandedId(isExp ? null : i.id)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div className="mas-item-icon" style={{ background: 'rgba(251,146,60,0.15)', border: '1px solid rgba(251,146,60,0.3)', flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fb923c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22V9M7 14l5-5 5 5"/><path d="M20 4H4"/></svg></div>
+                  <div className="meta">
+                    <div className="cat">{i.acreedor}</div>
+                    <div className="sub">{i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {i.estado === 'pagado' ? '✓ Pagado' : 'Pendiente'}</div>
+                  </div>
+                  <div className="amt neg" style={{ flexShrink: 0 }}>{fmt(i.monto_total - i.monto_pagado)}</div>
+                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
+                </div>
+                {isExp && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
+                    onClick={e => e.stopPropagation()}>
+                    {i.fecha_limite && (
+                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>
+                        Fecha límite: {fmtFecha(i.fecha_limite)}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      {i.estado !== 'pagado' ? (
+                        <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                          onClick={() => handlePagar(i.id)}>✓ Pagar</button>
+                      ) : (
+                        <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                          onClick={async () => {
+                            if (!window.confirm(`¿Revertir pago de ${i.acreedor}?`)) return;
+                            const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Pago deuda: ${i.acreedor}`).order('fecha', { ascending: false }).limit(1);
+                            await Promise.all([
+                              supabase.from('debts').update({ estado: 'pendiente', monto_pagado: 0 }).eq('id', i.id),
+                              txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                            ]);
+                            load();
+                          }}>↩ Revertir</button>
+                      )}
+                      <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -895,7 +1018,7 @@ function Metas({ userId }) {
             return (
               <li key={i.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)' }}>🎯</div>
+                  <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="#34d399"/></svg></div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{i.nombre}</div>
                     <div className="sub">{fmt(i.monto_actual)} / {fmt(i.monto_meta)} · {pct}%</div>
@@ -924,16 +1047,19 @@ function Metas({ userId }) {
 }
 
 /* ─── TARJETAS DE CRÉDITO ─── */
-function Tarjetas({ userId, userEmail }) {
-  const cfg = getUserConfig(userEmail);
+function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
+  const cfg = cfgProp || getUserConfig(userEmail);
   const [cards, setCards] = useState([]);
   const [expenses, setExpenses] = useState({});
   const [expanded, setExpanded] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showCardForm, setShowCardForm] = useState(false);
   const [showExpForm, setShowExpForm] = useState(null);
-  const [cardForm, setCardForm] = useState({ nombre: '', dia_cierre: '', dia_vencimiento_pago: '' });
-  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10), cuenta: cfg.c1 });
+  const [editCiclo, setEditCiclo] = useState(null);
+  const [cicloForm, setCicloForm] = useState({ fecha_cierre: '', fecha_limite_pago: '' });
+  const [expandedGrupo, setExpandedGrupo] = useState({});
+  const [cardForm, setCardForm] = useState({ nombre: '', fecha_cierre: '', fecha_limite_pago: '' });
+  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10), cuotas: '1', cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -957,9 +1083,18 @@ function Tarjetas({ userId, userEmail }) {
 
   async function handleAddCard(e) {
     e.preventDefault();
-    if (!cardForm.nombre.trim() || !cardForm.dia_cierre || !cardForm.dia_vencimiento_pago) return;
-    await supabase.from('credit_cards').insert({ user_id: userId, nombre: cardForm.nombre.trim(), dia_cierre: parseInt(cardForm.dia_cierre), dia_vencimiento_pago: parseInt(cardForm.dia_vencimiento_pago) });
-    setCardForm({ nombre: '', dia_cierre: '', dia_vencimiento_pago: '' });
+    if (!cardForm.nombre.trim() || !cardForm.fecha_cierre || !cardForm.fecha_limite_pago) return;
+    const dCierre = new Date(cardForm.fecha_cierre).getDate();
+    const dPago = new Date(cardForm.fecha_limite_pago).getDate();
+    await supabase.from('credit_cards').insert({
+      user_id: userId,
+      nombre: cardForm.nombre.trim(),
+      dia_cierre: dCierre,
+      dia_vencimiento_pago: dPago,
+      fecha_cierre: cardForm.fecha_cierre,
+      fecha_limite_pago: cardForm.fecha_limite_pago,
+    });
+    setCardForm({ nombre: '', fecha_cierre: '', fecha_limite_pago: '' });
     setShowCardForm(false);
     load();
   }
@@ -967,16 +1102,38 @@ function Tarjetas({ userId, userEmail }) {
   async function handleAddExp(e, cardId) {
     e.preventDefault();
     if (!expForm.descripcion.trim() || !expForm.monto) return;
-    await supabase.from('card_expenses').insert({
-      user_id: userId, card_id: cardId,
-      descripcion: expForm.descripcion.trim(),
-      monto: parseFloat(expForm.monto),
-      fecha_compra: expForm.fecha_compra,
-      cuenta: expForm.cuenta,
-    });
-    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10), cuenta: cfg.c1 });
+    const totalMonto = parseFloat(expForm.monto);
+    const numCuotas = parseInt(expForm.cuotas) || 1;
+    const montoPorCuota = Math.round(totalMonto / numCuotas);
+    const baseDate = new Date(expForm.fecha_compra + 'T12:00:00');
+    const grupoId = crypto.randomUUID();
+    const rows = [];
+    for (let i = 0; i < numCuotas; i++) {
+      const d = new Date(baseDate);
+      d.setMonth(d.getMonth() + i + 1);
+      rows.push({
+        user_id: userId, card_id: cardId,
+        descripcion: expForm.descripcion.trim(),
+        monto: montoPorCuota,
+        fecha_compra: d.toISOString().slice(0, 10),
+        cuotas: numCuotas,
+        numero_cuota: i + 1,
+        grupo_id: grupoId,
+        cuenta: expForm.cuenta,
+      });
+    }
+    await supabase.from('card_expenses').insert(rows);
+    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: new Date().toISOString().slice(0, 10), cuotas: '1', cuenta: cfg.c1 });
     setShowExpForm(null);
     loadExpenses(cardId);
+  }
+
+  async function handleEditCiclo(e, cardId) {
+    e.preventDefault();
+    if (!cicloForm.fecha_cierre || !cicloForm.fecha_limite_pago) return;
+    await supabase.from('credit_cards').update({ fecha_cierre: cicloForm.fecha_cierre, fecha_limite_pago: cicloForm.fecha_limite_pago }).eq('id', cardId);
+    setEditCiclo(null);
+    load();
   }
 
   async function handlePagarTarjeta(expId, cardId) {
@@ -984,10 +1141,11 @@ function Tarjetas({ userId, userEmail }) {
     const exp = (expenses[cardId] || []).find(e => e.id === expId);
     await supabase.from('card_expenses').update({ estado: 'pagado' }).eq('id', expId);
     if (exp) {
+      const suffix = exp.cuotas > 1 ? ` (${exp.numero_cuota}/${exp.cuotas})` : '';
       await supabase.from('transactions').insert({
         user_id: userId, monto: exp.monto, tipo: 'gasto',
         fecha: new Date().toISOString().slice(0, 10),
-        categoria: `Tarjeta: ${exp.descripcion}`, cuenta: exp.cuenta || cfg.c1,
+        categoria: `Tarjeta: ${exp.descripcion}${suffix}`, cuenta: exp.cuenta || cfg.c1,
       });
     }
     loadExpenses(cardId);
@@ -1004,6 +1162,16 @@ function Tarjetas({ userId, userEmail }) {
   async function handleDeleteExp(expId, cardId) {
     if (!window.confirm('¿Eliminar este gasto?')) return;
     await supabase.from('card_expenses').delete().eq('id', expId);
+    loadExpenses(cardId);
+  }
+
+  async function handleDeleteGrupo(grupoId, ids, cardId) {
+    if (!window.confirm('¿Eliminar esta compra y todas sus cuotas?')) return;
+    if (grupoId) {
+      await supabase.from('card_expenses').delete().eq('grupo_id', grupoId);
+    } else {
+      await supabase.from('card_expenses').delete().in('id', ids);
+    }
     loadExpenses(cardId);
   }
 
@@ -1028,15 +1196,13 @@ function Tarjetas({ userId, userEmail }) {
               <input type="text" value={cardForm.nombre} onChange={e => setCardForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Visa Personal, Bancop..." required />
             </div>
           </div>
-          <div className="row">
-            <div className="field">
-              <label>Día de cierre</label>
-              <input type="number" min="1" max="31" value={cardForm.dia_cierre} onChange={e => setCardForm(f => ({ ...f, dia_cierre: e.target.value }))} placeholder="15" required />
-            </div>
-            <div className="field">
-              <label>Día vence pago</label>
-              <input type="number" min="1" max="31" value={cardForm.dia_vencimiento_pago} onChange={e => setCardForm(f => ({ ...f, dia_vencimiento_pago: e.target.value }))} placeholder="25" required />
-            </div>
+          <div className="field" style={{ marginBottom: 10 }}>
+            <label>Fecha de cierre</label>
+            <input type="date" value={cardForm.fecha_cierre} onChange={e => setCardForm(f => ({ ...f, fecha_cierre: e.target.value }))} required />
+          </div>
+          <div className="field" style={{ marginBottom: 10 }}>
+            <label>Fecha límite de pago</label>
+            <input type="date" value={cardForm.fecha_limite_pago} onChange={e => setCardForm(f => ({ ...f, fecha_limite_pago: e.target.value }))} required />
           </div>
           <button className="add-btn" type="submit">Guardar tarjeta</button>
         </form>
@@ -1052,20 +1218,39 @@ function Tarjetas({ userId, userEmail }) {
             return (
               <li key={card.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div className="mas-item-icon" style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)' }}>🪙</div>
+                  <div className="mas-item-icon" style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{card.nombre}</div>
-                    <div className="sub">Cierre día {card.dia_cierre} · Pago día {card.dia_vencimiento_pago}{pendTotal > 0 ? ` · Pendiente: ${fmt(pendTotal)}` : ''}</div>
+                    <div className="sub">{pendTotal > 0 ? `Pendiente: ${fmt(pendTotal)}` : 'Sin gastos pendientes'} · Tocá ▼ para ver detalle</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="del" style={{ fontSize: 11, color: '#60a5fa', borderColor: 'rgba(96,165,250,0.3)', width: 'auto', padding: '0 8px' }}
-                      onClick={() => { setShowExpForm(showExpForm === card.id ? null : card.id); setExpanded(card.id); if (!expenses[card.id]) loadExpenses(card.id); }}>
-                      + Gasto
+                    <button className="del" style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd', background: 'rgba(96,165,250,0.15)', borderColor: 'rgba(96,165,250,0.35)', width: 36, padding: 0 }} title="Agregar gasto"
+                      onClick={() => { setShowExpForm(showExpForm === card.id ? null : card.id); setEditCiclo(null); setExpanded(card.id); if (!expenses[card.id]) loadExpenses(card.id); }}>
+                      +
+                    </button>
+                    <button className="del" style={{ fontSize: 14, color: '#fcd34d', background: 'rgba(251,191,36,0.15)', borderColor: 'rgba(251,191,36,0.35)', width: 36, padding: 0 }} title="Editar ciclo"
+                      onClick={() => { setEditCiclo(editCiclo === card.id ? null : card.id); setCicloForm({ fecha_cierre: card.fecha_cierre || '', fecha_limite_pago: card.fecha_limite_pago || '' }); setShowExpForm(null); }}>
+                      ✏️
                     </button>
                     <button className="del" style={{ fontSize: 13 }} onClick={() => toggleExpand(card.id)}>{expanded === card.id ? '▲' : '▼'}</button>
                     <button className="del" onClick={() => handleDeleteCard(card.id)} title="Eliminar tarjeta">✕</button>
                   </div>
                 </div>
+
+                {editCiclo === card.id && (
+                  <form className="mas-form" style={{ marginTop: 12, marginBottom: 0 }} onSubmit={e => handleEditCiclo(e, card.id)}>
+                    <div className="mas-form-title">Editar ciclo actual</div>
+                    <div className="field">
+                      <label>Fecha de cierre</label>
+                      <input type="date" value={cicloForm.fecha_cierre} onChange={e => setCicloForm(f => ({ ...f, fecha_cierre: e.target.value }))} required />
+                    </div>
+                    <div className="field" style={{ marginTop: 10 }}>
+                      <label>Fecha límite de pago</label>
+                      <input type="date" value={cicloForm.fecha_limite_pago} onChange={e => setCicloForm(f => ({ ...f, fecha_limite_pago: e.target.value }))} required />
+                    </div>
+                    <button className="add-btn" type="submit">Guardar ciclo</button>
+                  </form>
+                )}
 
                 {showExpForm === card.id && (
                   <form className="mas-form" style={{ marginTop: 12, marginBottom: 0 }} onSubmit={e => handleAddExp(e, card.id)}>
@@ -1077,13 +1262,27 @@ function Tarjetas({ userId, userEmail }) {
                     </div>
                     <div className="row">
                       <div className="field">
-                        <label>Monto (₲)</label>
+                        <label>Monto total (₲)</label>
                         <input type="text" inputMode="numeric" className="num" value={expForm.montoDisplay}
                           onChange={e => { const r = e.target.value.replace(/\D/g,''); setExpForm(f=>({...f,monto:r,montoDisplay:fmtD(r)})); }}
                           placeholder="0" required />
                       </div>
+                      <div className="field" style={{ maxWidth: 90 }}>
+                        <label>Cuotas</label>
+                        <input type="text" inputMode="numeric" value={expForm.cuotas}
+                          onChange={e => { const v = e.target.value.replace(/\D/g,''); setExpForm(f => ({ ...f, cuotas: v || '1' })); }}
+                          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10, color: '#fff', padding: '10px 8px', fontSize: 14, width: '100%', fontFamily: 'inherit' }}
+                          placeholder="1" />
+                      </div>
+                    </div>
+                    {expForm.monto && parseInt(expForm.cuotas) > 1 && (
+                      <div className="mas-preview">
+                        {expForm.cuotas} cuotas de {fmt(Math.round(parseFloat(expForm.monto) / parseInt(expForm.cuotas)))} / mes
+                      </div>
+                    )}
+                    <div className="row">
                       <div className="field">
-                        <label>Fecha</label>
+                        <label>Fecha de compra</label>
                         <input type="date" value={expForm.fecha_compra} onChange={e => setExpForm(f => ({ ...f, fecha_compra: e.target.value }))} required />
                       </div>
                     </div>
@@ -1098,22 +1297,88 @@ function Tarjetas({ userId, userEmail }) {
                 )}
 
                 {expanded === card.id && (
-                  <ul className="cuota-list">
-                    {(expenses[card.id] || []).length === 0 && <li style={{ color: 'rgba(255,255,255,0.3)', justifyContent: 'center' }}>Sin gastos registrados</li>}
-                    {(expenses[card.id] || []).map(exp => (
-                      <li key={exp.id} className={exp.estado === 'pagado' ? 'pagado' : ''}>
-                        <span className="cuota-fecha" style={{ flex: 1 }}>{exp.descripcion}</span>
-                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginRight: 6 }}>{exp.fecha_compra}</span>
-                        <span className="cuota-monto">{fmt(exp.monto)}</span>
-                        {exp.estado !== 'pagado' ? (
-                          <button className="cuota-pay-btn" onClick={() => handlePagarTarjeta(exp.id, card.id)}>✓ Pagar</button>
-                        ) : (
-                          <span className="cuota-paid-tag">Pagado ✓</span>
-                        )}
-                        <button className="del" style={{ width: 24, height: 24, borderRadius: 7, fontSize: 10 }} onClick={() => handleDeleteExp(exp.id, card.id)}>✕</button>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                  <div style={{ display: 'flex', gap: 8, padding: '10px 4px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 6 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Cierre</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>{card.fecha_cierre ? fmtFecha(card.fecha_cierre) : `Día ${card.dia_cierre}`}</div>
+                    </div>
+                    <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Límite de pago</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#f87171' }}>{card.fecha_limite_pago ? fmtFecha(card.fecha_limite_pago) : `Día ${card.dia_vencimiento_pago}`}</div>
+                    </div>
+                    {pendTotal > 0 && (
+                      <>
+                      <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 3 }}>Total pendiente</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#f87171' }}>{fmt(pendTotal)}</div>
+                      </div>
+                      </>
+                    )}
+                  </div>
+                  {(() => {
+                    const exps = expenses[card.id] || [];
+                    if (exps.length === 0) return <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 13, textAlign: 'center', padding: '12px 0' }}>Sin gastos registrados</div>;
+                    const groupMap = {};
+                    exps.forEach(exp => {
+                      const key = exp.grupo_id || exp.id;
+                      if (!groupMap[key]) groupMap[key] = [];
+                      groupMap[key].push(exp);
+                    });
+                    return Object.entries(groupMap).map(([key, cuotas]) => {
+                      cuotas.sort((a, b) => a.numero_cuota - b.numero_cuota);
+                      const total = cuotas.reduce((s, c) => s + c.monto, 0);
+                      const paid = cuotas.filter(c => c.estado === 'pagado').length;
+                      const allPaid = paid === cuotas.length;
+                      const isOpen = expandedGrupo[key];
+                      return (
+                        <div key={key} style={{ marginBottom: 8, borderRadius: 12, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)', opacity: allPaid ? 0.5 : 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'rgba(255,255,255,0.04)' }}>
+                            <div onClick={() => setExpandedGrupo(p => ({ ...p, [key]: !p[key] }))} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cuotas[0].descripcion}</div>
+                              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>
+                                {cuotas.length > 1 ? `${paid}/${cuotas.length} cuotas pagadas` : (allPaid ? 'Pagado' : `Vence: ${fmtFecha(cuotas[0].fecha_compra)}`)}
+                              </div>
+                            </div>
+                            <span onClick={() => setExpandedGrupo(p => ({ ...p, [key]: !p[key] }))} style={{ fontSize: 13, fontWeight: 700, color: allPaid ? '#34d399' : '#f87171', whiteSpace: 'nowrap', cursor: 'pointer' }}>{fmt(total)}</span>
+                            <span onClick={() => setExpandedGrupo(p => ({ ...p, [key]: !p[key] }))} style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}>{isOpen ? '▲' : '▼'}</span>
+                            <button className="del" style={{ width: 28, height: 28, minWidth: 28, minHeight: 28, borderRadius: 8, fontSize: 11 }} onClick={() => handleDeleteGrupo(cuotas[0].grupo_id, cuotas.map(c => c.id), card.id)}>✕</button>
+                          </div>
+                          {isOpen && (
+                            <div style={{ padding: '6px 12px 10px' }}>
+                              {cuotas.map(c => (
+                                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', minWidth: 50 }}>
+                                    {cuotas.length > 1 ? `Cuota ${c.numero_cuota}/${cuotas.length}` : 'Pago'}
+                                  </span>
+                                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', flex: 1 }}>{fmtFecha(c.fecha_compra)}</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: c.estado === 'pagado' ? '#34d399' : '#f87171' }}>{fmt(c.monto)}</span>
+                                  {c.estado !== 'pagado' ? (
+                                    <button className="cuota-pay-btn" onClick={() => handlePagarTarjeta(c.id, card.id)}>✓ Pagar</button>
+                                  ) : (
+                                    <button className="cuota-pay-btn" style={{ background: 'rgba(251,146,60,0.15)', borderColor: 'rgba(251,146,60,0.3)', color: '#fb923c' }}
+                                      onClick={async () => {
+                                        if (!window.confirm(`¿Revertir pago?`)) return;
+                                        const suffix = c.cuotas > 1 ? ` (${c.numero_cuota}/${c.cuotas})` : '';
+                                        const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${c.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
+                                        await Promise.all([
+                                          supabase.from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id),
+                                          txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                                        ]);
+                                        loadExpenses(card.id);
+                                      }}>↩ Revertir</button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  })()}
+                  </>
                 )}
               </li>
             );
@@ -1124,35 +1389,322 @@ function Tarjetas({ userId, userEmail }) {
   );
 }
 
+/* ─── PERFIL ─── */
+function Perfil({ userId, userEmail }) {
+  const [cuenta1, setCuenta1] = useState('');
+  const [cuenta2, setCuenta2] = useState('');
+  const [plan, setPlan] = useState('');
+  const [origPlan, setOrigPlan] = useState('');
+  const [origC1, setOrigC1] = useState('');
+  const [origC2, setOrigC2] = useState('');
+  const [origLabel1, setOrigLabel1] = useState('');
+  const [origLabel2, setOrigLabel2] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [modal, setModal] = useState(null);
+  // modal: null | { type:'2to1', step:1|2, accion:null|'unificar'|'descartar' } | { type:'1to2' }
+
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase.from('user_config').select('*').eq('user_id', userId).single();
+      if (data) {
+        setCuenta1(data.cuenta1 || '');
+        setCuenta2(data.cuenta2 || '');
+        setPlan(data.plan || 'personal');
+        setOrigPlan(data.plan || 'personal');
+        setOrigC1((data.cuenta1 || '').toLowerCase());
+        setOrigC2((data.cuenta2 || '').toLowerCase());
+        setOrigLabel1(data.cuenta1 || '');
+        setOrigLabel2(data.cuenta2 || '');
+      }
+      setLoading(false);
+    }
+    load();
+  }, [userId]);
+
+  function handleSave(e) {
+    e.preventDefault();
+    if (!cuenta1.trim()) return;
+    if (plan === 'negocio' && !cuenta2.trim()) return;
+
+    const cambioA1 = origPlan === 'negocio' && plan === 'personal';
+    const cambioA2 = origPlan === 'personal' && plan === 'negocio';
+
+    if (cambioA1) { setModal({ type: '2to1', step: 0, cuentaElegida: null, accion: null }); return; }
+    if (cambioA2) { setModal({ type: '1to2' }); return; }
+    executeSave(null, null, null);
+  }
+
+  async function renameCuentaEnTodo(uid, oldKey, newKey) {
+    const tables = ['transactions', 'receivables', 'debts', 'recurring_expenses', 'card_expenses', 'installment_purchases'];
+    await Promise.all(tables.map(t =>
+      supabase.from(t).update({ cuenta: newKey }).eq('user_id', uid).eq('cuenta', oldKey)
+    ));
+  }
+
+  async function deleteCuentaEnTodo(uid, key) {
+    await supabase.from('transactions').delete().eq('user_id', uid).eq('cuenta', key);
+    await supabase.from('receivables').delete().eq('user_id', uid).eq('cuenta', key);
+    await supabase.from('debts').delete().eq('user_id', uid).eq('cuenta', key);
+    await supabase.from('recurring_expenses').delete().eq('user_id', uid).eq('cuenta', key);
+    await supabase.from('card_expenses').delete().eq('user_id', uid).eq('cuenta', key);
+    await supabase.from('installment_purchases').delete().eq('user_id', uid).eq('cuenta', key);
+  }
+
+  async function executeSave(tipo, accion, cuentaElegida) {
+    setSaving(true); setSuccess(false); setModal(null);
+
+    // Determinar qué cuenta queda y cuál se va
+    const keptKey   = cuentaElegida === 'c2' ? origC2 : origC1;
+    const keptLabel = cuentaElegida === 'c2' ? origLabel2 : (cuenta1.trim() || origLabel1);
+    const goneKey   = cuentaElegida === 'c2' ? origC1 : origC2;
+    const newSingle = keptLabel.toLowerCase();
+    const newC2db   = plan === 'negocio' ? cuenta2.trim() : null;
+
+    // Guardar user_config
+    await supabase.from('user_config').update({
+      cuenta1: cuentaElegida === 'c2' ? origLabel2 : cuenta1.trim(),
+      cuenta2: plan === 'negocio' ? cuenta2.trim() : null,
+      plan,
+    }).eq('user_id', userId);
+
+    if (tipo === '2to1') {
+      if (keptKey && newSingle && keptKey !== newSingle) {
+        await renameCuentaEnTodo(userId, keptKey, newSingle);
+      }
+      if (accion === 'unificar') {
+        await renameCuentaEnTodo(userId, goneKey, newSingle);
+      } else if (accion === 'descartar') {
+        await deleteCuentaEnTodo(userId, goneKey);
+      }
+      setOrigC1(newSingle); setOrigLabel1(keptLabel);
+      setOrigC2(''); setOrigLabel2('');
+    } else if (tipo === '1to2') {
+      if (origC1 && origC1 !== cuenta1.trim().toLowerCase()) {
+        await renameCuentaEnTodo(userId, origC1, cuenta1.trim().toLowerCase());
+      }
+      setOrigC1(cuenta1.trim().toLowerCase()); setOrigLabel1(cuenta1.trim());
+      setOrigC2(newC2db?.toLowerCase() || ''); setOrigLabel2(cuenta2.trim());
+    } else {
+      if (origC1 && cuenta1.trim().toLowerCase() !== origC1) {
+        await renameCuentaEnTodo(userId, origC1, cuenta1.trim().toLowerCase());
+        setOrigC1(cuenta1.trim().toLowerCase()); setOrigLabel1(cuenta1.trim());
+      }
+      if (origC2 && newC2db && newC2db.toLowerCase() !== origC2) {
+        await renameCuentaEnTodo(userId, origC2, newC2db.toLowerCase());
+        setOrigC2(newC2db.toLowerCase()); setOrigLabel2(cuenta2.trim());
+      }
+    }
+
+    setOrigPlan(plan);
+    setSaving(false); setSuccess(true);
+    setTimeout(() => setSuccess(false), 3000);
+  }
+
+  if (loading) return <div className="mas-loading">Cargando...</div>;
+
+  return (
+    <div>
+      {/* MODAL 2→1 */}
+      {modal?.type === '2to1' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#0f1f35', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 22, padding: 24, width: '100%', maxWidth: 360 }}>
+
+            {/* PASO 0: elegir cuál cuenta conservar */}
+            {modal.step === 0 && (
+              <>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 6 }}>¿Cuál cuenta conservás?</div>
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 20, lineHeight: 1.6 }}>
+                  Pasás a una sola cuenta. Elegí cuál querés mantener.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                  {[
+                    { key: 'c1', label: origLabel1, desc: 'Cuenta 1' },
+                    { key: 'c2', label: origLabel2, desc: 'Cuenta 2' },
+                  ].map(op => (
+                    <button key={op.key} onClick={() => setModal(m => ({ ...m, step: 1, cuentaElegida: op.key }))}
+                      style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(165,180,252,0.3)', background: 'rgba(99,102,241,0.08)', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#a5b4fc', marginBottom: 3 }}>{op.label}</div>
+                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{op.desc} · Sus movimientos se conservan</div>
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => setModal(null)} style={{ width: '100%', padding: '12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontFamily: 'inherit', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
+              </>
+            )}
+
+            {/* PASO 1: qué hacer con la otra cuenta */}
+            {modal.step === 1 && (
+              <>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 6 }}>Movimientos de {modal.cuentaElegida === 'c1' ? origLabel2 : origLabel1}</div>
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 20, lineHeight: 1.6 }}>
+                  Conservás <b style={{ color: '#a5b4fc' }}>{modal.cuentaElegida === 'c1' ? origLabel1 : origLabel2}</b>. ¿Qué hacemos con los movimientos de la otra cuenta?
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+                  <button onClick={() => setModal(m => ({ ...m, step: 2, accion: 'unificar' }))}
+                    style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.08)', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#34d399', marginBottom: 4 }}>Unificar todo en {modal.cuentaElegida === 'c1' ? origLabel1 : origLabel2}</div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Los movimientos de las dos cuentas quedan juntos. No se pierde nada.</div>
+                  </button>
+                  <button onClick={() => setModal(m => ({ ...m, step: 2, accion: 'descartar' }))}
+                    style={{ padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#f87171', marginBottom: 4 }}>Eliminar movimientos de {modal.cuentaElegida === 'c1' ? origLabel2 : origLabel1}</div>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Se borran permanentemente. No se puede deshacer.</div>
+                  </button>
+                </div>
+                <button onClick={() => setModal(m => ({ ...m, step: 0 }))} style={{ width: '100%', padding: '12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontFamily: 'inherit', cursor: 'pointer', fontSize: 13 }}>← Atrás</button>
+              </>
+            )}
+
+            {/* PASO 2: confirmación */}
+            {modal.step === 2 && (
+              <>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 8 }}>Confirmá el cambio</div>
+                <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', marginBottom: 20, fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.9 }}>
+                  ✓ Cuenta que conservás: <b style={{ color: '#a5b4fc' }}>{modal.cuentaElegida === 'c1' ? origLabel1 : origLabel2}</b><br/>
+                  {modal.accion === 'unificar'
+                    ? <>✓ Movimientos de <b style={{ color: '#fff' }}>{modal.cuentaElegida === 'c1' ? origLabel2 : origLabel1}</b> se <b style={{ color: '#34d399' }}>unifican</b>. No se pierde nada.</>
+                    : <>⚠ Movimientos de <b style={{ color: '#fff' }}>{modal.cuentaElegida === 'c1' ? origLabel2 : origLabel1}</b> se <b style={{ color: '#f87171' }}>eliminan permanentemente</b>.</>
+                  }
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setModal(m => ({ ...m, step: 1 }))} style={{ flex: 1, padding: '13px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontFamily: 'inherit', cursor: 'pointer', fontSize: 13 }}>← Atrás</button>
+                  <button onClick={() => executeSave('2to1', modal.accion, modal.cuentaElegida)} disabled={saving}
+                    style={{ flex: 2, padding: '13px', borderRadius: 12, border: 'none', background: modal.accion === 'unificar' ? 'linear-gradient(135deg,#34d399,#059669)' : 'linear-gradient(135deg,#ef4444,#dc2626)', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', fontWeight: 700, fontSize: 13, opacity: saving ? 0.7 : 1 }}>
+                    {saving ? 'Guardando...' : 'Confirmar y guardar'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1→2 */}
+      {modal?.type === '1to2' && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div style={{ background: '#0f1f35', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 22, padding: 24, width: '100%', maxWidth: 360 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 8 }}>Agregás una segunda cuenta</div>
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', marginBottom: 20, fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8 }}>
+              ✓ <b style={{ color: '#fff' }}>{origLabel1}</b> conserva todos sus movimientos actuales<br/>
+              ✓ <b style={{ color: '#a5b4fc' }}>{cuenta2.trim()}</b> empezará con saldo en cero
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setModal(null)} style={{ flex: 1, padding: '13px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontFamily: 'inherit', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
+              <button onClick={() => executeSave('1to2', null)}
+                style={{ flex: 2, padding: '13px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontFamily: 'inherit', cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+                {saving ? 'Guardando...' : 'Confirmar y guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mas-section-header">
+        <div>
+          <div className="mas-section-title">Mi perfil</div>
+          <div className="mas-section-sub">{userEmail}</div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 16, padding: '18px 16px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Tipo de cuenta</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[
+              { val: 'personal', label: 'Personal', desc: 'Una sola cuenta para tus finanzas', grad: 'linear-gradient(135deg,#6366f1,#8b5cf6)' },
+              { val: 'negocio', label: 'Negocio + Personal', desc: 'Dos cuentas separadas', grad: 'linear-gradient(135deg,#0ea5e9,#6366f1)' },
+            ].map(p => (
+              <button key={p.val} type="button" onClick={() => setPlan(p.val)}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, border: plan === p.val ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.08)', background: plan === p.val ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.03)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: p.grad, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{p.label}</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{p.desc}</div>
+                </div>
+                {plan === p.val && <svg style={{ marginLeft: 'auto', flexShrink: 0 }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 16, padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Nombre de cuentas</div>
+          <div className="field" style={{ margin: 0 }}>
+            <label>{plan === 'negocio' ? 'Cuenta 1 (negocio)' : 'Nombre de tu cuenta'}</label>
+            <input type="text" value={cuenta1} onChange={e => setCuenta1(e.target.value)} placeholder={plan === 'negocio' ? 'Ej: Mi Tienda' : 'Ej: Personal'} required />
+          </div>
+          {plan === 'negocio' && (
+            <div className="field" style={{ margin: 0 }}>
+              <label>Cuenta 2 (personal)</label>
+              <input type="text" value={cuenta2} onChange={e => setCuenta2(e.target.value)} placeholder="Ej: Personal" required />
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.5 }}>
+            Estos nombres aparecen en toda la app. Recargá la pantalla principal después de guardar para ver los cambios.
+          </div>
+        </div>
+
+        {success && (
+          <div style={{ background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 12, padding: '12px 16px', fontSize: 13, color: '#34d399', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            ¡Guardado correctamente!
+          </div>
+        )}
+
+        <button type="submit" disabled={saving} style={{ padding: '14px', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: saving ? 0.7 : 1 }}>
+          {saving ? 'Guardando...' : 'Guardar cambios'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 /* ─── PÁGINA PRINCIPAL MÁS ─── */
+function buildCfgFromDB(uc) {
+  const c1 = (uc.cuenta1 || '').toLowerCase();
+  const c2 = uc.cuenta2 ? uc.cuenta2.toLowerCase() : null;
+  return { c1, c2, l1: uc.cuenta1 || '', l2: uc.cuenta2 || null, single: !uc.cuenta2 };
+}
+
 export default function Mas() {
   const router = useRouter();
   const [session, setSession] = useState(undefined);
   const [activeTab, setActiveTab] = useState('resumen');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [cfg, setCfg] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!data.session) { router.push('/login'); return; }
-      const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', data.session.user.id).single();
-      if (profile?.role !== 'admin') { router.push('/'); return; }
-      setIsAdmin(true);
+      const userId = data.session.user.id;
+      const email = data.session.user.email;
+      const [{ data: profile }, { data: uc }] = await Promise.all([
+        supabase.from('user_profiles').select('role').eq('id', userId).single(),
+        supabase.from('user_config').select('*').eq('user_id', userId).single(),
+      ]);
+      setIsAdmin(profile?.role === 'admin');
+      setCfg(uc ? buildCfgFromDB(uc) : getUserConfig(email));
       setSession(data.session);
     });
   }, [router]);
 
-  if (!session || !isAdmin) return null;
+  if (!session || !cfg) return null;
 
   const email = session.user.email;
   const renderTab = () => {
     switch (activeTab) {
-      case 'resumen': return <Resumen userId={session.user.id} cfg={getUserConfig(email)} />;
-      case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} />;
-      case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} />;
-      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} />;
-      case 'cobros': return <Cobros userId={session.user.id} userEmail={email} />;
-      case 'deudas': return <Deudas userId={session.user.id} userEmail={email} />;
+      case 'resumen': return <Resumen userId={session.user.id} cfg={cfg} />;
+      case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} cfg={cfg} />;
+      case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} cfg={cfg} />;
+      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} cfg={cfg} />;
+      case 'cobros': return <Cobros userId={session.user.id} userEmail={email} cfg={cfg} />;
+      case 'deudas': return <Deudas userId={session.user.id} userEmail={email} cfg={cfg} />;
       case 'metas': return <Metas userId={session.user.id} />;
+      case 'perfil': return <Perfil userId={session.user.id} userEmail={email} />;
       default: return null;
     }
   };
@@ -1170,7 +1722,7 @@ export default function Mas() {
       <div className="mas-tabs">
         {TABS.map(t => (
           <button key={t.id} className={`mas-tab${activeTab === t.id ? ' active' : ''}`} onClick={() => setActiveTab(t.id)}>
-            <span className="mas-tab-icon">{t.icon}</span>
+            <div style={{ width: 42, height: 42, borderRadius: 12, background: `linear-gradient(135deg,${t.grad[0]},${t.grad[1]})`, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6, boxShadow: `0 4px 12px ${t.grad[0]}55` }}>{t.svg}</div>
             <span className="mas-tab-label">{t.label}</span>
           </button>
         ))}
