@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -37,9 +37,7 @@ export default function ResetPasswordPage() {
   return (
     <div className="login-wrap">
       <div className="login-logo">
-        <div style={{ width: 64, height: 64, borderRadius: 18, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(99,102,241,0.4)' }}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
-        </div>
+        <img src="/icon-192.png" alt="MiCaja" style={{ width: 64, height: 64, borderRadius: 18, boxShadow: '0 8px 24px rgba(99,102,241,0.4)' }} />
       </div>
       <h1>MiCaja</h1>
       <p className="sub">Creá tu nueva contraseña.</p>

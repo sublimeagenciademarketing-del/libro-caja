@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 const WA_NUMBER = '595986313704';
 const waLink = encodeURIComponent('Hola, quiero contratar MiCaja. ¿Me podés dar más información?');
@@ -10,9 +10,7 @@ export default function LandingPage() {
       {/* HEADER */}
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', maxWidth: 600, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(99,102,241,0.4)' }}>
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
-          </div>
+          <img src="/icon-192.png" alt="MiCaja" style={{ width: 38, height: 38, borderRadius: 11, boxShadow: '0 4px 14px rgba(99,102,241,0.4)' }} />
           <span style={{ fontWeight: 800, fontSize: 18, letterSpacing: '-0.02em' }}>MiCaja</span>
         </div>
         <a href="/login" style={{ padding: '9px 20px', borderRadius: 10, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontWeight: 600, fontSize: 13, textDecoration: 'none', transition: 'all 0.2s' }}>
@@ -139,9 +137,7 @@ export default function LandingPage() {
       {/* FOOTER */}
       <footer style={{ textAlign: 'center', padding: '0 20px 40px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <div style={{ paddingTop: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 8 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 8, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
-          </div>
+          <img src="/icon-192.png" alt="MiCaja" style={{ width: 28, height: 28, borderRadius: 8 }} />
           <span style={{ fontWeight: 800, fontSize: 15 }}>MiCaja</span>
         </div>
         <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', margin: 0 }}>Tu caja, tus finanzas · Paraguay</p>

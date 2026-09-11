@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -37,9 +37,7 @@ export default function OnboardingPage() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: '#0f172a' }}>
-      <div style={{ width: 60, height: 60, borderRadius: 16, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8, boxShadow: '0 8px 24px rgba(99,102,241,0.4)' }}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
-      </div>
+      <img src="/icon-192.png" alt="MiCaja" style={{ width: 60, height: 60, borderRadius: 16, boxShadow: '0 8px 24px rgba(99,102,241,0.4)', marginBottom: 8 }} />
       <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 800, margin: 0 }}>MiCaja</h1>
       <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 4, marginBottom: 32 }}>Configurá tu cuenta</p>
 
@@ -56,7 +54,7 @@ export default function OnboardingPage() {
             </button>
             <button onClick={() => { setPlan('negocio'); setStep(2); }} style={planBtn(plan === 'negocio')}>
               <div style={{ width: 44, height: 44, borderRadius: 12, background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
               </div>
               <div style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>Negocio + Personal</div>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginTop: 4 }}>Manejá tu negocio y tus finanzas personales en un solo lugar, organizados por categoría</div>
