@@ -2,7 +2,7 @@ import './globals.css';
 
 export const metadata = {
   title: 'Libro de caja',
-  description: 'Registro de ingresos y gastos — Sublime & Personal',
+  description: 'Controlá tus ingresos y gastos desde el celular',
   manifest: '/manifest.json',
   appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Libro de caja' },
   icons: {

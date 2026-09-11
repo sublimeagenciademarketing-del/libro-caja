@@ -659,7 +659,12 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
 
   async function handleDelete(id) {
     if (!window.confirm('¿Eliminar este cobro?')) return;
+    const item = items.find(i => i.id === id);
     await supabase.from('receivables').delete().eq('id', id);
+    if (item?.estado === 'cobrado') {
+      const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Cobro: ${item.cliente}`).order('fecha', { ascending: false }).limit(1);
+      if (txs?.length) await supabase.from('transactions').delete().eq('id', txs[0].id);
+    }
     load();
   }
 

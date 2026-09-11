@@ -44,7 +44,10 @@ export default function AdminPage() {
   }, [router]);
 
   async function loadUsers(markVisit = false) {
-    if (markVisit) localStorage.setItem('adminLastVisit', new Date().toISOString());
+    if (markVisit) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) await supabase.from('user_config').update({ admin_last_visit: new Date().toISOString() }).eq('user_id', session.user.id);
+    }
     const [{ data: configs }, { data: lics }] = await Promise.all([
       supabase.from('user_config').select('user_id, email, plan, cuenta1, cuenta2, fecha_registro').order('fecha_registro', { ascending: false }),
       supabase.from('licencias').select('email, activo, fecha_vencimiento'),

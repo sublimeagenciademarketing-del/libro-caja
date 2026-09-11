@@ -303,8 +303,11 @@ export default function Home() {
     setIsAdmin(isAdminUser);
 
     if (isAdminUser) {
-      const lastVisit = localStorage.getItem('adminLastVisit') || '2000-01-01T00:00:00Z';
-      const { data: configs } = await supabase.from('user_config').select('email, fecha_registro');
+      const [{ data: adminUc }, { data: configs }] = await Promise.all([
+        supabase.from('user_config').select('admin_last_visit').eq('user_id', userId).single(),
+        supabase.from('user_config').select('email, fecha_registro'),
+      ]);
+      const lastVisit = adminUc?.admin_last_visit || '2000-01-01T00:00:00Z';
       const newCount = (configs || []).filter(c =>
         c.email !== ADMIN_EMAIL && c.fecha_registro && c.fecha_registro > lastVisit
       ).length;
