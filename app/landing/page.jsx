@@ -162,7 +162,6 @@ export default function LandingPage() {
         @keyframes mc-blob { 0%,100% { transform: translate(0,0) scale(1) } 33% { transform: translate(22px,-26px) scale(1.09) } 66% { transform: translate(-18px,16px) scale(.94) } }
         @keyframes mc-shine { 0% { transform: translateX(-130%) } 55%,100% { transform: translateX(240%) } }
         @keyframes mc-ring { 0% { box-shadow: 0 0 0 0 rgba(99,102,241,.45) } 70% { box-shadow: 0 0 0 14px rgba(99,102,241,0) } 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0) } }
-        @keyframes mc-grow { from { transform: scaleX(0) } to { transform: scaleX(1) } }
         .mc-card { transition: transform .35s ${EASE}, border-color .35s ${EASE}, background .35s ${EASE}; }
         .mc-card:hover { transform: translateY(-4px); border-color: rgba(139,92,246,.45); background: rgba(255,255,255,.07); }
         .mc-btn { transition: transform .25s ${EASE}, box-shadow .25s ${EASE}, background .25s ${EASE}; }
@@ -306,9 +305,6 @@ export default function LandingPage() {
               <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Resultado esperado</span>
                 <span style={{ fontSize: 12, fontWeight: 800, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}><Counter to={2750000} active={mockIn} prefix="₲ " sign="+" /></span>
-              </div>
-              <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.07)', marginTop: 10, overflow: 'hidden' }}>
-                <div data-anim style={{ height: '100%', width: '78%', borderRadius: 999, background: 'linear-gradient(90deg,#6366f1,#34d399)', transformOrigin: 'left', animation: reduced || !mockIn ? 'none' : `mc-grow 1.5s ${EASE} both` }} />
               </div>
             </div>
           </div>

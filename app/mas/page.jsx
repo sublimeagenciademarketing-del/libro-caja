@@ -1551,8 +1551,17 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     }));
     const suffix = c.cuotas > 1 ? ` (${c.numero_cuota}/${c.cuotas})` : '';
     const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${c.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
-    await supabase.from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id);
+    // .select() confirma que la fila se haya actualizado de verdad: sin esto,
+    // un rechazo de la base pasaba desapercibido hasta recargar la página.
+    const { data: revertidos, error } = await supabase
+      .from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id).select('id');
+    if (error || !revertidos?.length) {
+      await loadExpenses(cardId);
+      alert('No se pudo revertir el pago. Probá de nuevo.');
+      return;
+    }
     if (txs?.length) await supabase.from('transactions').delete().eq('id', txs[0].id);
+    await loadExpenses(cardId);
     load();
   }
 

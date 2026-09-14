@@ -62,3 +62,42 @@ where not exists (select 1 from auth.users u where u.id = uc.user_id);
 -- 2d. Si 2c devuelve filas y querés limpiarlas:
 -- delete from user_config uc
 -- where not exists (select 1 from auth.users u where u.id = uc.user_id);
+
+
+-- ─────────────────────────────────────────────────────────────
+-- 3) TARJETAS: por qué "Revertir" no se guarda
+--    Marcar como pagado sí funciona, revertir no. Eso apunta a
+--    que falta el permiso de UPDATE en card_expenses, o que la
+--    condición del permiso solo deja pasar los pendientes.
+-- ─────────────────────────────────────────────────────────────
+
+-- 3a. Ver los permisos de card_expenses (solo lectura).
+--     Comparalos con los de installments, donde revertir sí anda.
+select tablename, policyname, cmd, qual as condicion, with_check
+from pg_policies
+where schemaname = 'public'
+  and tablename in ('card_expenses', 'installments')
+order by tablename, cmd;
+
+-- 3b. Ver si hay filas sin dueño: si user_id es null, ningún
+--     permiso las deja tocar.
+select estado, count(*) as filas, count(user_id) as con_user_id
+from card_expenses
+group by estado;
+
+-- 3c. Si 3a muestra que NO hay una política de update para
+--     card_expenses, este bloque la crea (misma regla que el resto
+--     de las tablas: cada quien toca solo lo suyo).
+-- create policy "Actualizar mis propios gastos de tarjeta"
+--   on card_expenses for update
+--   using (auth.uid() = user_id)
+--   with check (auth.uid() = user_id);
+
+-- 3d. Si 3a muestra una política de update cuya condición menciona
+--     estado = 'pendiente', esa es la culpable: solo permite pasar
+--     de pendiente a pagado. Se reemplaza por la de arriba:
+-- drop policy "<nombre exacto que devolvió 3a>" on card_expenses;
+-- create policy "Actualizar mis propios gastos de tarjeta"
+--   on card_expenses for update
+--   using (auth.uid() = user_id)
+--   with check (auth.uid() = user_id);
