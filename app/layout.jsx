@@ -1,10 +1,10 @@
 import './globals.css';
 
 export const metadata = {
-  title: 'Libro de caja',
-  description: 'Controlá tus ingresos y gastos desde el celular',
+  title: 'MiCaja — Controlá tu dinero',
+  description: 'Registrá ingresos, gastos, cuotas y deudas desde tu celular.',
   manifest: '/manifest.json',
-  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Libro de caja' },
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'MiCaja' },
   icons: {
     icon: '/icon-192.png',
     apple: '/icon-180.png',

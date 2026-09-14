@@ -29,7 +29,10 @@ body {
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 32px;
+  gap: 10px;
 }
+.top-bar > div:first-child { min-width: 0; flex: 1 1 auto; }
+.top-bar > div:last-child { flex: 0 0 auto; }
 .top-bar h1 {
   font-size: 12px;
   font-weight: 600;
@@ -42,6 +45,9 @@ body {
   font-weight: 700;
   color: #fff;
   margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .logout-btn {
   background: rgba(255,255,255,0.07);
@@ -307,6 +313,7 @@ input.num { font-variant-numeric: tabular-nums; }
 }
 .toggle button {
   flex: 1;
+  min-width: 0;
   padding: 9px 6px;
   border: none;
   background: transparent;
@@ -317,6 +324,9 @@ input.num { font-variant-numeric: tabular-nums; }
   cursor: pointer;
   border-radius: 11px;
   transition: all 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .toggle button.active.ingreso,
 .toggle button.active.sublime {

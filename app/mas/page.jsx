@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
+const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -174,13 +175,15 @@ function Resumen({ userId, cfg }) {
 }
 
 /* ─── GASTOS FIJOS ─── */
-function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
+function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const [gastos, setGastos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: cfg.c1 });
+  const [form, setForm] = useState({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: cfg.c1, frecuencia: 'mensual' });
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -205,8 +208,9 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
       monto: parseFloat(form.monto),
       dia_vencimiento: parseInt(form.dia_vencimiento),
       cuenta: form.cuenta,
+      frecuencia: form.frecuencia || 'mensual',
     });
-    setForm({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: 'sublime' });
+    setForm({ descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', cuenta: cfg.c1, frecuencia: 'mensual' });
     setShowForm(false);
     load();
   }
@@ -222,7 +226,24 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
     load();
   }
 
-  const total = gastos.filter(g => g.activo).reduce((s, g) => s + g.monto, 0);
+  async function handleSaveEdit(id) {
+    await supabase.from('recurring_expenses').update({
+      descripcion: editForm.descripcion.trim(),
+      monto: parseFloat(editForm.monto),
+      dia_vencimiento: parseInt(editForm.dia_vencimiento),
+      cuenta: editForm.cuenta,
+      frecuencia: editForm.frecuencia || 'mensual',
+    }).eq('id', id);
+    setEditingId(null);
+    load();
+  }
+
+  function montoMensual(g) {
+    if (g.frecuencia === 'semanal') return g.monto * 4;
+    if (g.frecuencia === 'quincenal') return g.monto * 2;
+    return g.monto;
+  }
+  const total = gastos.filter(g => g.activo).reduce((s, g) => s + montoMensual(g), 0);
 
   return (
     <div>
@@ -231,12 +252,14 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
           <div className="mas-section-title">Gastos Fijos Recurrentes</div>
           <div className="mas-section-sub">Total mensual: <span style={{ color: '#f87171', fontWeight: 700 }}>{fmt(total)}</span></div>
         </div>
-        <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
-          {showForm ? '✕ Cerrar' : '+ Nuevo'}
-        </button>
+        {!soloLectura && (
+          <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
+            {showForm ? '✕ Cerrar' : '+ Nuevo'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {!soloLectura && showForm && (
         <form className="mas-form" onSubmit={handleAdd}>
           <div className="mas-form-title">Nuevo gasto fijo</div>
           <div className="row">
@@ -253,6 +276,18 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
             <div className="field" style={{ maxWidth: 100 }}>
               <label>Día vence</label>
               <input type="number" min="1" max="31" value={form.dia_vencimiento} onChange={e => setForm(f => ({ ...f, dia_vencimiento: e.target.value }))} placeholder="10" required />
+            </div>
+          </div>
+          <div className="row">
+            <div className="field">
+              <label>Frecuencia</label>
+              <div className="toggle">
+                {['mensual','quincenal','semanal'].map(f => (
+                  <button key={f} type="button" className={form.frecuencia === f ? 'active sublime' : ''} onClick={() => setForm(v => ({ ...v, frecuencia: f }))}>
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="row">
@@ -275,7 +310,16 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
             const isExp = expandedId === g.id;
             const now = new Date();
             const mesCurrent = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-            const pagadoEsteMes = g.pagado_mes === mesCurrent;
+            const pagadoFecha = g.pagado_fecha ? new Date(g.pagado_fecha + 'T12:00:00') : null;
+            const diasDesde = pagadoFecha ? Math.floor((now - pagadoFecha) / (1000*60*60*24)) : 999;
+            const pagadoEsteMes = g.frecuencia === 'semanal'
+              ? diasDesde < 7
+              : g.frecuencia === 'quincenal'
+              ? diasDesde < 15
+              : g.pagado_mes === mesCurrent;
+            const proximoPago = pagadoFecha && g.frecuencia !== 'mensual'
+              ? (() => { const d = new Date(pagadoFecha); d.setDate(d.getDate() + (g.frecuencia === 'semanal' ? 7 : 15)); return d; })()
+              : null;
             return (
               <li key={g.id} className={g.activo ? '' : 'inactive'}
                 style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
@@ -288,58 +332,64 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
                   </div>
                   <div className="meta">
                     <div className="cat">{g.descripcion}</div>
-                    <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {pagadoEsteMes ? '✓ Pagado este mes' : g.activo ? 'Pendiente' : 'Pausado'}</div>
+                    <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {g.frecuencia && g.frecuencia !== 'mensual' ? g.frecuencia + ' · ' : ''}{pagadoEsteMes ? (proximoPago ? `✓ Próximo: ${fmtFecha(proximoPago.toISOString().slice(0,10))}` : '✓ Pagado este mes') : g.activo ? 'Pendiente' : 'Pausado'}</div>
                   </div>
                   <div className="amt" style={{ flexShrink: 0, color: pagadoEsteMes ? '#34d399' : '#f87171' }}>{fmt(g.monto)}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
                 </div>
-                {isExp && (
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
+                {isExp && !soloLectura && (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
                     onClick={e => e.stopPropagation()}>
-                    {g.activo && !pagadoEsteMes && (
-                      <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
-                        onClick={async () => {
-                          if (!window.confirm(`¿Registrar pago de ${g.descripcion}?`)) return;
-                          const now2 = new Date();
-                          const mes = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
-                          await Promise.all([
-                            supabase.from('transactions').insert({
-                              user_id: userId, monto: g.monto, tipo: 'gasto',
-                              fecha: now2.toISOString().slice(0, 10),
-                              categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta,
-                            }),
-                            supabase.from('recurring_expenses').update({ pagado_mes: mes }).eq('id', g.id),
-                          ]);
-                          load();
-                          setExpandedId(null);
-                        }}>
-                        ✓ Pagar
-                      </button>
+                    {editingId === g.id ? (
+                      <div>
+                        <div className="row"><div className="field"><label>Descripción</label><input type="text" value={editForm.descripcion} onChange={e => setEditForm(f => ({...f, descripcion: e.target.value}))} /></div></div>
+                        <div className="row">
+                          <div className="field"><label>Monto (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto ? String(editForm.monto).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({...f, monto: e.target.value.replace(/\D/g, '')}))} /></div>
+                          <div className="field" style={{ maxWidth: 100 }}><label>Día vence</label><input type="number" min="1" max="31" value={editForm.dia_vencimiento} onChange={e => setEditForm(f => ({...f, dia_vencimiento: e.target.value}))} /></div>
+                        </div>
+                        <div className="row"><div className="field"><label>Frecuencia</label><div className="toggle">{['mensual','quincenal','semanal'].map(fr => <button key={fr} type="button" className={editForm.frecuencia === fr ? 'active sublime' : ''} onClick={() => setEditForm(f => ({...f, frecuencia: fr}))}>{fr.charAt(0).toUpperCase()+fr.slice(1)}</button>)}</div></div></div>
+                        <div className="row"><div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({...f, cuenta: v}))} cfg={cfg} /></div></div>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
+                          <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
+                          <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEdit(g.id)}>Guardar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        {g.activo && !pagadoEsteMes && (
+                          <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                            onClick={async () => {
+                              if (!window.confirm(`¿Registrar pago de ${g.descripcion}?`)) return;
+                              const now2 = new Date();
+                              const mes = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
+                              const hoy = now2.toISOString().slice(0, 10);
+                              await Promise.all([
+                                supabase.from('transactions').insert({ user_id: userId, monto: g.monto, tipo: 'gasto', fecha: hoy, categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta }),
+                                supabase.from('recurring_expenses').update({ pagado_mes: mes, pagado_fecha: hoy }).eq('id', g.id),
+                              ]);
+                              load(); setExpandedId(null);
+                            }}>✓ Pagar</button>
+                        )}
+                        {pagadoEsteMes && (
+                          <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                            onClick={async () => {
+                              if (!window.confirm(`¿Revertir el pago de ${g.descripcion}?`)) return;
+                              const now2 = new Date();
+                              const mes = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
+                              const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Gasto fijo: ${g.descripcion}`).gte('fecha', `${mes}-01`).order('fecha', { ascending: false }).limit(1);
+                              await Promise.all([
+                                supabase.from('recurring_expenses').update({ pagado_mes: null, pagado_fecha: null }).eq('id', g.id),
+                                txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                              ]);
+                              load(); setExpandedId(null);
+                            }}>↩ Revertir</button>
+                        )}
+                        <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
+                          onClick={() => { setEditingId(g.id); setEditForm({ descripcion: g.descripcion, monto: String(Math.round(g.monto)), dia_vencimiento: String(g.dia_vencimiento), cuenta: g.cuenta, frecuencia: g.frecuencia || 'mensual' }); }}>✎</button>
+                        <button className="del" title={g.activo ? 'Pausar' : 'Activar'} onClick={() => handleToggle(g.id, g.activo)} style={{ fontSize: 13 }}>{g.activo ? '⏸' : '▶'}</button>
+                        <button className="del" onClick={() => handleDelete(g.id)} title="Eliminar">✕</button>
+                      </div>
                     )}
-                    {pagadoEsteMes && (
-                      <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
-                        onClick={async () => {
-                          if (!window.confirm(`¿Revertir el pago de ${g.descripcion}?`)) return;
-                          const now2 = new Date();
-                          const mes = `${now2.getFullYear()}-${String(now2.getMonth()+1).padStart(2,'0')}`;
-                          const { data: txs } = await supabase.from('transactions')
-                            .select('id').eq('user_id', userId)
-                            .eq('categoria', `Gasto fijo: ${g.descripcion}`)
-                            .gte('fecha', `${mes}-01`).order('fecha', { ascending: false }).limit(1);
-                          await Promise.all([
-                            supabase.from('recurring_expenses').update({ pagado_mes: null }).eq('id', g.id),
-                            txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
-                          ]);
-                          load();
-                          setExpandedId(null);
-                        }}>
-                        ↩ Revertir
-                      </button>
-                    )}
-                    <button className="del" title={g.activo ? 'Pausar' : 'Activar'} onClick={() => handleToggle(g.id, g.activo)} style={{ fontSize: 13 }}>
-                      {g.activo ? '⏸' : '▶'}
-                    </button>
-                    <button className="del" onClick={() => handleDelete(g.id)} title="Eliminar">✕</button>
                   </div>
                 )}
               </li>
@@ -352,18 +402,20 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp }) {
 }
 
 /* ─── CUOTAS ─── */
-function Cuotas({ userId, userEmail, cfg: cfgProp }) {
+function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const [purchases, setPurchases] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [installments, setInstallments] = useState({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
   const [form, setForm] = useState({
     descripcion: '', monto: '', montoDisplay: '',
     total_cuotas: '', dia_vencimiento: '',
     fecha_primera_cuota: new Date().toISOString().slice(0, 10),
-    cuenta: cfg.c1,
+    cuenta: cfg.c1, frecuencia: 'mensual',
   });
 
   const load = useCallback(async () => {
@@ -406,6 +458,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
       dia_vencimiento: diaVenc,
       fecha_primera_cuota: form.fecha_primera_cuota,
       cuenta: form.cuenta,
+      frecuencia: form.frecuencia || 'mensual',
     }).select().single();
 
     if (error || !purchase) return;
@@ -413,10 +466,17 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
     // Generar cuotas automáticamente
     const cuotas = [];
     const firstDate = new Date(form.fecha_primera_cuota + 'T12:00:00');
+    const frec = form.frecuencia || 'mensual';
     for (let i = 0; i < totalCuotas; i++) {
       const d = new Date(firstDate);
-      d.setMonth(d.getMonth() + i);
-      d.setDate(diaVenc);
+      if (frec === 'semanal') {
+        d.setDate(d.getDate() + i * 7);
+      } else if (frec === 'quincenal') {
+        d.setDate(d.getDate() + i * 15);
+      } else {
+        d.setMonth(d.getMonth() + i);
+        d.setDate(diaVenc);
+      }
       cuotas.push({
         purchase_id: purchase.id,
         user_id: userId,
@@ -428,7 +488,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
     }
     await supabase.from('installments').insert(cuotas);
 
-    setForm({ descripcion: '', monto: '', montoDisplay: '', total_cuotas: '', dia_vencimiento: '', fecha_primera_cuota: new Date().toISOString().slice(0, 10), cuenta: 'sublime' });
+    setForm({ descripcion: '', monto: '', montoDisplay: '', total_cuotas: '', dia_vencimiento: '', fecha_primera_cuota: new Date().toISOString().slice(0, 10), cuenta: cfg.c1, frecuencia: 'mensual' });
     setShowForm(false);
     load();
   }
@@ -461,6 +521,41 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
     if (expanded === id) setExpanded(null);
   }
 
+  async function handleSaveEditCuota(id) {
+    const frec = editForm.frecuencia || 'mensual';
+    const diaVenc = parseInt(editForm.dia_vencimiento) || 1;
+    await supabase.from('installment_purchases').update({
+      descripcion: editForm.descripcion.trim(),
+      cuenta: editForm.cuenta,
+      frecuencia: frec,
+      dia_vencimiento: diaVenc,
+      fecha_primera_cuota: editForm.fecha_primera_cuota,
+    }).eq('id', id);
+
+    // Regenerar cuotas pendientes con nuevas fechas
+    const purchase = purchases.find(p => p.id === id);
+    if (purchase && editForm.fecha_primera_cuota) {
+      const { data: existing } = await supabase.from('installments').select('*').eq('purchase_id', id).order('numero_cuota');
+      const pendientes = (existing || []).filter(c => c.estado === 'pendiente');
+      if (pendientes.length > 0) {
+        const firstPendiente = pendientes[0].numero_cuota;
+        const firstDate = new Date(editForm.fecha_primera_cuota + 'T12:00:00');
+        const updates = pendientes.map((c, idx) => {
+          const d = new Date(firstDate);
+          const i = firstPendiente - 1 + idx;
+          if (frec === 'semanal') d.setDate(d.getDate() + i * 7);
+          else if (frec === 'quincenal') d.setDate(d.getDate() + i * 15);
+          else { d.setMonth(d.getMonth() + i); d.setDate(diaVenc); }
+          return supabase.from('installments').update({ fecha_vencimiento: d.toISOString().slice(0, 10) }).eq('id', c.id);
+        });
+        await Promise.all(updates);
+      }
+    }
+
+    setEditingId(null);
+    load();
+  }
+
   const pendingThisMonth = () => {
     const now = new Date();
     const y = now.getFullYear(), m = now.getMonth() + 1;
@@ -481,12 +576,14 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
           <div className="mas-section-title">Cuotas</div>
           <div className="mas-section-sub">{purchases.length} compra{purchases.length !== 1 ? 's' : ''} en cuotas</div>
         </div>
-        <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
-          {showForm ? '✕ Cerrar' : '+ Nueva'}
-        </button>
+        {!soloLectura && (
+          <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
+            {showForm ? '✕ Cerrar' : '+ Nueva'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {!soloLectura && showForm && (
         <form className="mas-form" onSubmit={handleAdd}>
           <div className="mas-form-title">Nueva compra en cuotas</div>
           <div className="row">
@@ -513,6 +610,22 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
             <div className="field">
               <label>Primera cuota</label>
               <input type="date" value={form.fecha_primera_cuota} onChange={e => setForm(f => ({ ...f, fecha_primera_cuota: e.target.value }))} required />
+            </div>
+          </div>
+          <div className="row">
+            <div className="field">
+              <label>Frecuencia</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['mensual', 'quincenal', 'semanal'].map(f => (
+                  <button key={f} type="button" onClick={() => setForm(prev => ({ ...prev, frecuencia: f }))}
+                    style={{ flex: 1, padding: '6px 0', borderRadius: 8, border: '1px solid', fontSize: 12,
+                      background: form.frecuencia === f ? 'rgba(96,165,250,0.2)' : 'transparent',
+                      borderColor: form.frecuencia === f ? 'rgba(96,165,250,0.5)' : 'rgba(255,255,255,0.15)',
+                      color: form.frecuencia === f ? '#93c5fd' : 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>
+                    {f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <div className="row">
@@ -546,15 +659,32 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
                   <div className="mas-item-icon" style={{ background: 'rgba(192,132,252,0.15)', border: '1px solid rgba(192,132,252,0.3)' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{p.descripcion}</div>
-                    <div className="sub">{pagadas}/{p.total_cuotas} cuotas · {fmt(p.monto_por_cuota)}/mes</div>
+                    <div className="sub">{pagadas}/{p.total_cuotas} cuotas · {fmt(p.monto_por_cuota)}{p.frecuencia === 'semanal' ? '/sem.' : p.frecuencia === 'quincenal' ? '/quinc.' : '/mes'}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button className="del" style={{ fontSize: 13 }} onClick={() => toggleExpand(p.id)} title="Ver cuotas">
                       {expanded === p.id ? '▲' : '▼'}
                     </button>
-                    <button className="del" onClick={() => handleDeletePurchase(p.id)} title="Eliminar">✕</button>
+                    {!soloLectura && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
+                      onClick={() => { setEditingId(p.id); setEditForm({ descripcion: p.descripcion, cuenta: p.cuenta || cfg.c1, frecuencia: p.frecuencia || 'mensual', dia_vencimiento: p.dia_vencimiento || '', fecha_primera_cuota: p.fecha_primera_cuota || '' }); }}>✎</button>}
+                    {!soloLectura && <button className="del" onClick={() => handleDeletePurchase(p.id)} title="Eliminar">✕</button>}
                   </div>
                 </div>
+                {editingId === p.id && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="row"><div className="field"><label>Descripción</label><input type="text" value={editForm.descripcion} onChange={e => setEditForm(f => ({...f, descripcion: e.target.value}))} /></div></div>
+                    <div className="row">
+                      <div className="field" style={{ maxWidth: 100 }}><label>Día vence</label><input type="number" min="1" max="31" value={editForm.dia_vencimiento} onChange={e => setEditForm(f => ({...f, dia_vencimiento: e.target.value}))} placeholder="10" /></div>
+                      <div className="field"><label>Primera cuota</label><input type="date" value={editForm.fecha_primera_cuota} onChange={e => setEditForm(f => ({...f, fecha_primera_cuota: e.target.value}))} /></div>
+                    </div>
+                    <div className="row"><div className="field"><label>Frecuencia</label><div style={{ display: 'flex', gap: 6 }}>{['mensual','quincenal','semanal'].map(f => (<button key={f} type="button" onClick={() => setEditForm(prev => ({...prev, frecuencia: f}))} style={{ flex: 1, padding: '6px 0', borderRadius: 8, border: '1px solid', fontSize: 12, background: editForm.frecuencia === f ? 'rgba(96,165,250,0.2)' : 'transparent', borderColor: editForm.frecuencia === f ? 'rgba(96,165,250,0.5)' : 'rgba(255,255,255,0.15)', color: editForm.frecuencia === f ? '#93c5fd' : 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>))}</div></div></div>
+                    <div className="row"><div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({...f, cuenta: v}))} cfg={cfg} /></div></div>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
+                      <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
+                      <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditCuota(p.id)}>Guardar</button>
+                    </div>
+                  </div>
+                )}
                 <div className="cuota-bar-wrap">
                   <div className="cuota-bar" style={{ width: `${pct}%` }} />
                 </div>
@@ -577,9 +707,9 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
                         <span className="cuota-fecha">{fmtFecha(c.fecha_vencimiento)}</span>
                         <span className="cuota-monto">{fmt(c.monto)}</span>
                         {c.estado === 'pendiente' ? (
-                          <button className="cuota-pay-btn" onClick={() => handlePagarCuota(c.id, p.id)}>✓ Pagar</button>
+                          !soloLectura && <button className="cuota-pay-btn" onClick={() => handlePagarCuota(c.id, p.id)}>✓ Pagar</button>
                         ) : (
-                          <button className="cuota-pay-btn" style={{ background: 'rgba(251,146,60,0.15)', borderColor: 'rgba(251,146,60,0.3)', color: '#fb923c' }}
+                          !soloLectura && <button className="cuota-pay-btn" style={{ background: 'rgba(251,146,60,0.15)', borderColor: 'rgba(251,146,60,0.3)', color: '#fb923c' }}
                             onClick={async () => {
                               if (!window.confirm(`¿Revertir pago de cuota #${c.numero_cuota}?`)) return;
                               const cat = `${p.descripcion} — Cuota ${c.numero_cuota}/${p.total_cuotas}`;
@@ -606,13 +736,15 @@ function Cuotas({ userId, userEmail, cfg: cfgProp }) {
 }
 
 /* ─── COBROS (Cuentas por cobrar) ─── */
-function Cobros({ userId, userEmail, cfg: cfgProp }) {
+function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
-  const [form, setForm] = useState({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1 });
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [form, setForm] = useState({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1, frecuencia: 'una_vez' });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -637,22 +769,36 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
       fecha_esperada: form.fecha_esperada || null,
       forma_pago: form.forma_pago,
       cuenta: form.cuenta,
+      frecuencia: form.frecuencia || 'una_vez',
     });
-    setForm({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1 });
+    setForm({ cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1, frecuencia: 'una_vez' });
     setShowForm(false);
     load();
   }
 
   async function handleCobrar(id) {
     if (!window.confirm('¿Marcar como cobrado?')) return;
-    await supabase.from('receivables').update({ estado: 'cobrado' }).eq('id', id);
     const item = items.find(i => i.id === id);
+    await supabase.from('receivables').update({ estado: 'cobrado' }).eq('id', id);
     if (item) {
       await supabase.from('transactions').insert({
         user_id: userId, monto: item.monto, tipo: 'ingreso',
         fecha: new Date().toISOString().slice(0, 10),
         categoria: `Cobro: ${item.cliente}`, cuenta: item.cuenta || cfg.c1,
       });
+      const frec = item.frecuencia || 'una_vez';
+      if (frec !== 'una_vez' && item.fecha_esperada) {
+        const base = new Date(item.fecha_esperada + 'T12:00:00');
+        if (frec === 'semanal') base.setDate(base.getDate() + 7);
+        else if (frec === 'quincenal') base.setDate(base.getDate() + 15);
+        else base.setMonth(base.getMonth() + 1);
+        await supabase.from('receivables').insert({
+          user_id: userId, cliente: item.cliente, monto: item.monto,
+          fecha_esperada: base.toISOString().slice(0, 10),
+          forma_pago: item.forma_pago, cuenta: item.cuenta,
+          frecuencia: frec, estado: 'pendiente',
+        });
+      }
     }
     load();
   }
@@ -668,6 +814,19 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
     load();
   }
 
+  async function handleSaveEditCobro(id) {
+    await supabase.from('receivables').update({
+      cliente: editForm.cliente.trim(),
+      monto: parseFloat(editForm.monto),
+      fecha_esperada: editForm.fecha_esperada || null,
+      forma_pago: editForm.forma_pago,
+      cuenta: editForm.cuenta,
+      frecuencia: editForm.frecuencia || 'una_vez',
+    }).eq('id', id);
+    setEditingId(null);
+    load();
+  }
+
   const pendiente = items.filter(i => i.estado === 'pendiente').reduce((s, i) => s + i.monto, 0);
 
   return (
@@ -677,12 +836,14 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
           <div className="mas-section-title">Cuentas por Cobrar</div>
           <div className="mas-section-sub">Pendiente: <span style={{ color: '#34d399', fontWeight: 700 }}>{fmt(pendiente)}</span></div>
         </div>
-        <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
-          {showForm ? '✕ Cerrar' : '+ Nuevo'}
-        </button>
+        {!soloLectura && (
+          <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
+            {showForm ? '✕ Cerrar' : '+ Nuevo'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {!soloLectura && showForm && (
         <form className="mas-form" onSubmit={handleAdd}>
           <div className="mas-form-title">Nuevo cobro pendiente</div>
           <div className="row">
@@ -717,6 +878,16 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
               <CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} />
             </div>
           </div>
+          <div className="row">
+            <div className="field">
+              <label>Frecuencia</label>
+              <div className="toggle">
+                {[['una_vez','Una vez'],['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal']].map(([v,l]) => (
+                  <button key={v} type="button" className={form.frecuencia === v ? 'active sublime' : ''} onClick={() => setForm(f => ({ ...f, frecuencia: v }))}>{l}</button>
+                ))}
+              </div>
+            </div>
+          </div>
           <button className="add-btn" type="submit">Guardar</button>
         </form>
       )}
@@ -735,7 +906,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
                   <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v13M7 10l5 5 5-5"/><path d="M20 20H4"/></svg></div>
                   <div className="meta">
                     <div className="cat">{i.cliente}</div>
-                    <div className="sub">{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
+                    <div className="sub">{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2}{i.frecuencia && i.frecuencia !== 'una_vez' ? ` · ${i.frecuencia}` : ''} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
                   </div>
                   <div className="amt pos" style={{ flexShrink: 0 }}>{fmt(i.monto)}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
@@ -743,27 +914,50 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
                 {isExp && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
                     onClick={e => e.stopPropagation()}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>
-                      {i.forma_pago} {i.fecha_esperada ? `· Vence: ${fmtFecha(i.fecha_esperada)}` : ''}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      {i.estado !== 'cobrado' ? (
-                        <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
-                          onClick={() => handleCobrar(i.id)}>✓ Cobrar</button>
-                      ) : (
-                        <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
-                          onClick={async () => {
-                            if (!window.confirm(`¿Revertir cobro de ${i.cliente}?`)) return;
-                            const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Cobro: ${i.cliente}`).order('fecha', { ascending: false }).limit(1);
-                            await Promise.all([
-                              supabase.from('receivables').update({ estado: 'pendiente' }).eq('id', i.id),
-                              txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
-                            ]);
-                            load();
-                          }}>↩ Revertir</button>
-                      )}
-                      <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
-                    </div>
+                    {editingId === i.id ? (
+                      <div>
+                        <div className="row"><div className="field"><label>Cliente</label><input type="text" value={editForm.cliente} onChange={e => setEditForm(f => ({...f, cliente: e.target.value}))} /></div></div>
+                        <div className="row">
+                          <div className="field"><label>Monto (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto ? String(editForm.monto).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({...f, monto: e.target.value.replace(/\D/g, '')}))} /></div>
+                          <div className="field"><label>Fecha esperada</label><input type="date" value={editForm.fecha_esperada || ''} onChange={e => setEditForm(f => ({...f, fecha_esperada: e.target.value}))} /></div>
+                        </div>
+                        <div className="row">
+                          <div className="field"><label>Forma de pago</label><div className="toggle">{['transferencia','efectivo'].map(p => <button key={p} type="button" className={editForm.forma_pago === p ? 'active sublime' : ''} onClick={() => setEditForm(f => ({...f, forma_pago: p}))}>{p.charAt(0).toUpperCase()+p.slice(1)}</button>)}</div></div>
+                          <div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({...f, cuenta: v}))} cfg={cfg} /></div>
+                        </div>
+                        <div className="row"><div className="field"><label>Frecuencia</label><div className="toggle">{[['una_vez','Una vez'],['mensual','Mensual'],['quincenal','Quincenal'],['semanal','Semanal']].map(([v,l]) => <button key={v} type="button" className={editForm.frecuencia === v ? 'active sublime' : ''} onClick={() => setEditForm(f => ({...f, frecuencia: v}))}>{l}</button>)}</div></div></div>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
+                          <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
+                          <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditCobro(i.id)}>Guardar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>
+                          {i.forma_pago} {i.fecha_esperada ? `· Vence: ${fmtFecha(i.fecha_esperada)}` : ''}
+                        </div>
+                        {!soloLectura && <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          {i.estado !== 'cobrado' ? (
+                            <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                              onClick={() => handleCobrar(i.id)}>✓ Cobrar</button>
+                          ) : (
+                            <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                              onClick={async () => {
+                                if (!window.confirm(`¿Revertir cobro de ${i.cliente}?`)) return;
+                                const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Cobro: ${i.cliente}`).order('fecha', { ascending: false }).limit(1);
+                                await Promise.all([
+                                  supabase.from('receivables').update({ estado: 'pendiente' }).eq('id', i.id),
+                                  txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                                ]);
+                                load();
+                              }}>↩ Revertir</button>
+                          )}
+                          {i.estado !== 'cobrado' && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
+                            onClick={() => { setEditingId(i.id); setEditForm({ cliente: i.cliente, monto: String(Math.round(i.monto)), fecha_esperada: i.fecha_esperada || '', forma_pago: i.forma_pago || 'transferencia', cuenta: i.cuenta || cfg.c1, frecuencia: i.frecuencia || 'una_vez' }); }}>✎</button>}
+                          <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
+                        </div>}
+                      </>
+                    )}
                   </div>
                 )}
               </li>
@@ -776,12 +970,14 @@ function Cobros({ userId, userEmail, cfg: cfgProp }) {
 }
 
 /* ─── DEUDAS ─── */
-function Deudas({ userId, userEmail, cfg: cfgProp }) {
+function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
   const [form, setForm] = useState({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1 });
 
   const load = useCallback(async () => {
@@ -832,6 +1028,17 @@ function Deudas({ userId, userEmail, cfg: cfgProp }) {
     load();
   }
 
+  async function handleSaveEditDeuda(id) {
+    await supabase.from('debts').update({
+      acreedor: editForm.acreedor.trim(),
+      monto_total: parseFloat(editForm.monto_total),
+      fecha_limite: editForm.fecha_limite || null,
+      cuenta: editForm.cuenta,
+    }).eq('id', id);
+    setEditingId(null);
+    load();
+  }
+
   const totalDeuda = items.filter(i => i.estado === 'pendiente').reduce((s, i) => s + (i.monto_total - i.monto_pagado), 0);
 
   return (
@@ -841,12 +1048,14 @@ function Deudas({ userId, userEmail, cfg: cfgProp }) {
           <div className="mas-section-title">Deudas</div>
           <div className="mas-section-sub">Total pendiente: <span style={{ color: '#f87171', fontWeight: 700 }}>{fmt(totalDeuda)}</span></div>
         </div>
-        <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
-          {showForm ? '✕ Cerrar' : '+ Nueva'}
-        </button>
+        {!soloLectura && (
+          <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
+            {showForm ? '✕ Cerrar' : '+ Nueva'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {!soloLectura && showForm && (
         <form className="mas-form" onSubmit={handleAdd}>
           <div className="mas-form-title">Nueva deuda</div>
           <div className="row">
@@ -897,29 +1106,44 @@ function Deudas({ userId, userEmail, cfg: cfgProp }) {
                 {isExp && (
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}
                     onClick={e => e.stopPropagation()}>
-                    {i.fecha_limite && (
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>
-                        Fecha límite: {fmtFecha(i.fecha_limite)}
+                    {editingId === i.id ? (
+                      <div>
+                        <div className="row"><div className="field"><label>A quién le debo</label><input type="text" value={editForm.acreedor} onChange={e => setEditForm(f => ({...f, acreedor: e.target.value}))} /></div></div>
+                        <div className="row">
+                          <div className="field"><label>Monto total (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto_total ? String(editForm.monto_total).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({...f, monto_total: e.target.value.replace(/\D/g, '')}))} /></div>
+                          <div className="field"><label>Fecha límite</label><input type="date" value={editForm.fecha_limite || ''} onChange={e => setEditForm(f => ({...f, fecha_limite: e.target.value}))} /></div>
+                        </div>
+                        <div className="row"><div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({...f, cuenta: v}))} cfg={cfg} /></div></div>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
+                          <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
+                          <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditDeuda(i.id)}>Guardar</button>
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        {i.fecha_limite && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Fecha límite: {fmtFecha(i.fecha_limite)}</div>}
+                        {!soloLectura && <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          {i.estado !== 'pagado' ? (
+                            <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                              onClick={() => handlePagar(i.id)}>✓ Pagar</button>
+                          ) : (
+                            <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                              onClick={async () => {
+                                if (!window.confirm(`¿Revertir pago de ${i.acreedor}?`)) return;
+                                const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Pago deuda: ${i.acreedor}`).order('fecha', { ascending: false }).limit(1);
+                                await Promise.all([
+                                  supabase.from('debts').update({ estado: 'pendiente', monto_pagado: 0 }).eq('id', i.id),
+                                  txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+                                ]);
+                                load();
+                              }}>↩ Revertir</button>
+                          )}
+                          {i.estado !== 'pagado' && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
+                            onClick={() => { setEditingId(i.id); setEditForm({ acreedor: i.acreedor, monto_total: String(Math.round(i.monto_total)), fecha_limite: i.fecha_limite || '', cuenta: i.cuenta || cfg.c1 }); }}>✎</button>}
+                          <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
+                        </div>}
+                      </>
                     )}
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      {i.estado !== 'pagado' ? (
-                        <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
-                          onClick={() => handlePagar(i.id)}>✓ Pagar</button>
-                      ) : (
-                        <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
-                          onClick={async () => {
-                            if (!window.confirm(`¿Revertir pago de ${i.acreedor}?`)) return;
-                            const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Pago deuda: ${i.acreedor}`).order('fecha', { ascending: false }).limit(1);
-                            await Promise.all([
-                              supabase.from('debts').update({ estado: 'pendiente', monto_pagado: 0 }).eq('id', i.id),
-                              txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
-                            ]);
-                            load();
-                          }}>↩ Revertir</button>
-                      )}
-                      <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
-                    </div>
                   </div>
                 )}
               </li>
@@ -932,13 +1156,19 @@ function Deudas({ userId, userEmail, cfg: cfgProp }) {
 }
 
 /* ─── METAS DE AHORRO ─── */
-function Metas({ userId }) {
+function Metas({ userId, soloLectura = false }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [aportarId, setAportarId] = useState(null);
   const [aporte, setAporte] = useState({ monto: '', montoDisplay: '' });
   const [form, setForm] = useState({ nombre: '', monto_meta: '', metaDisplay: '' });
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [historial, setHistorial] = useState({});
+  const [showHistorial, setShowHistorial] = useState(null);
+  const [editingContrib, setEditingContrib] = useState(null);
+  const [editContribMonto, setEditContribMonto] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -970,16 +1200,65 @@ function Metas({ userId }) {
 
   async function handleAportar(id) {
     const item = items.find(i => i.id === id);
-    const nuevo = Math.min(item.monto_actual + parseFloat(aporte.monto || 0), item.monto_meta);
-    await supabase.from('savings_goals').update({ monto_actual: nuevo }).eq('id', id);
+    const montoAporte = parseFloat(aporte.monto || 0);
+    const nuevo = Math.min(item.monto_actual + montoAporte, item.monto_meta);
+    await Promise.all([
+      supabase.from('savings_goals').update({ monto_actual: nuevo }).eq('id', id),
+      supabase.from('savings_contributions').insert({ goal_id: id, user_id: userId, monto: montoAporte, fecha: new Date().toISOString().slice(0, 10) }),
+    ]);
     setAportarId(null);
     setAporte({ monto: '', montoDisplay: '' });
+    if (showHistorial === id) loadHistorial(id);
+    load();
+  }
+
+  async function loadHistorial(id) {
+    const { data } = await supabase.from('savings_contributions').select('*').eq('goal_id', id).order('created_at', { ascending: false });
+    setHistorial(prev => ({ ...prev, [id]: data || [] }));
+  }
+
+  async function toggleHistorial(id) {
+    if (showHistorial === id) { setShowHistorial(null); return; }
+    setShowHistorial(id);
+    if (!historial[id]) await loadHistorial(id);
+  }
+
+  async function handleDeleteContrib(contrib, goalId) {
+    if (!window.confirm('¿Eliminar este aporte? Se descontará del total ahorrado.')) return;
+    const goal = items.find(i => i.id === goalId);
+    const nuevoTotal = Math.max(0, (goal?.monto_actual || 0) - contrib.monto);
+    await Promise.all([
+      supabase.from('savings_contributions').delete().eq('id', contrib.id),
+      supabase.from('savings_goals').update({ monto_actual: nuevoTotal }).eq('id', goalId),
+    ]);
+    await loadHistorial(goalId);
+    load();
+  }
+
+  async function handleEditContrib(contrib, goalId, nuevoMonto) {
+    const goal = items.find(i => i.id === goalId);
+    const diff = nuevoMonto - contrib.monto;
+    const nuevoTotal = Math.min(goal?.monto_meta || 0, Math.max(0, (goal?.monto_actual || 0) + diff));
+    await Promise.all([
+      supabase.from('savings_contributions').update({ monto: nuevoMonto }).eq('id', contrib.id),
+      supabase.from('savings_goals').update({ monto_actual: nuevoTotal }).eq('id', goalId),
+    ]);
+    await loadHistorial(goalId);
     load();
   }
 
   async function handleDelete(id) {
     if (!window.confirm('¿Eliminar esta meta?')) return;
     await supabase.from('savings_goals').delete().eq('id', id);
+    load();
+  }
+
+  async function handleSaveEditMeta(id) {
+    await supabase.from('savings_goals').update({
+      nombre: editForm.nombre.trim(),
+      monto_meta: parseFloat(editForm.monto_meta),
+    }).eq('id', id);
+    setEditingId(null);
     load();
   }
 
@@ -990,12 +1269,14 @@ function Metas({ userId }) {
           <div className="mas-section-title">Metas de Ahorro</div>
           <div className="mas-section-sub">{items.length} meta{items.length !== 1 ? 's' : ''}</div>
         </div>
-        <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
-          {showForm ? '✕ Cerrar' : '+ Nueva'}
-        </button>
+        {!soloLectura && (
+          <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
+            {showForm ? '✕ Cerrar' : '+ Nueva'}
+          </button>
+        )}
       </div>
 
-      {showForm && (
+      {!soloLectura && showForm && (
         <form className="mas-form" onSubmit={handleAdd}>
           <div className="mas-form-title">Nueva meta de ahorro</div>
           <div className="row">
@@ -1023,23 +1304,113 @@ function Metas({ userId }) {
             return (
               <li key={i.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1" fill="#34d399"/></svg></div>
+                  <div style={{ width: 44, height: 44, flexShrink: 0 }}>
+                    {(() => {
+                      const r = 18, c = 22, circ = 2 * Math.PI * r;
+                      const dash = (pct / 100) * circ;
+                      return (
+                        <svg width="44" height="44" viewBox="0 0 44 44">
+                          <circle cx={c} cy={c} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
+                          <circle cx={c} cy={c} r={r} fill="none" stroke="url(#gMeta)" strokeWidth="4"
+                            strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ / 4}
+                            strokeLinecap="round" />
+                          <defs>
+                            <linearGradient id="gMeta" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor="#34d399" />
+                              <stop offset="100%" stopColor="#059669" />
+                            </linearGradient>
+                          </defs>
+                          <text x={c} y={c + 4} textAnchor="middle" fontSize="10" fontWeight="700" fill={pct >= 100 ? '#34d399' : 'white'}>
+                            {pct}%
+                          </text>
+                        </svg>
+                      );
+                    })()}
+                  </div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{i.nombre}</div>
-                    <div className="sub">{fmt(i.monto_actual)} / {fmt(i.monto_meta)} · {pct}%</div>
+                    <div className="sub">Meta: {fmt(i.monto_meta)}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="del" style={{ fontSize: 12, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => setAportarId(aportarId === i.id ? null : i.id)} title="Aportar">+</button>
-                    <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>
+                    {!soloLectura && <button className="del" style={{ fontSize: 12, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => setAportarId(aportarId === i.id ? null : i.id)} title="Aportar">+</button>}
+                    <button className="del" style={{ fontSize: 11, color: '#94a3b8', borderColor: 'rgba(148,163,184,0.3)' }} onClick={() => toggleHistorial(i.id)} title="Historial">≡</button>
+                    {!soloLectura && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
+                      onClick={() => { setEditingId(i.id); setEditForm({ nombre: i.nombre, monto_meta: String(Math.round(i.monto_meta)) }); }}>✎</button>}
+                    {!soloLectura && <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>}
                   </div>
                 </div>
-                <div className="cuota-bar-wrap">
-                  <div className="cuota-bar" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #34d399, #059669)' }} />
+                <div className="cuota-bar-wrap" style={{ background: 'transparent', overflow: 'hidden', display: 'flex' }}>
+                  {i.monto_actual > 0 && (
+                    <div style={{ width: `${pct}%`, height: '100%', background: 'linear-gradient(90deg, #34d399, #059669)', borderRadius: pct >= 100 ? 4 : '4px 0 0 4px', flexShrink: 0 }} />
+                  )}
+                  {pct < 100 && i.monto_actual > 0 && (
+                    <div style={{ flex: 1, height: '100%', background: 'rgba(248,113,113,0.35)', borderRadius: '0 4px 4px 0' }} />
+                  )}
+                  {i.monto_actual === 0 && (
+                    <div style={{ width: '100%', height: '100%', background: 'rgba(255,255,255,0.07)', borderRadius: 4 }} />
+                  )}
                 </div>
+                {pct < 100 ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                    {i.monto_actual > 0
+                      ? <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>{fmt(i.monto_actual)}</span>
+                      : <span />}
+                    <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>Faltan {fmt(i.monto_meta - i.monto_actual)}</span>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 4, fontSize: 11, color: '#34d399', fontWeight: 600, textAlign: 'center' }}>¡Meta cumplida!</div>
+                )}
+                {showHistorial === i.id && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>Historial de aportes</div>
+                    {(historial[i.id] || []).length === 0 ? (
+                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '6px 0' }}>Sin aportes registrados</div>
+                    ) : (
+                      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {(historial[i.id] || []).map(h => (
+                          <li key={h.id} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '7px 10px', listStyle: 'none' }}>
+                            {editingContrib === h.id ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmtFecha(h.fecha)}</span>
+                                <input type="text" inputMode="numeric" style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(96,165,250,0.5)', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, padding: '5px 10px', outline: 'none', boxSizing: 'border-box' }}
+                                  value={editContribMonto.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+                                  onChange={e => setEditContribMonto(e.target.value.replace(/\D/g, ''))} />
+                                <button className="del" style={{ width: 30, height: 30, minWidth: 30, fontSize: 13, color: '#94a3b8', padding: 0, flexShrink: 0 }} onClick={() => setEditingContrib(null)}>✕</button>
+                                <button className="del" style={{ width: 30, height: 30, minWidth: 30, fontSize: 13, color: '#34d399', borderColor: 'rgba(52,211,153,0.4)', background: 'rgba(52,211,153,0.15)', padding: 0, flexShrink: 0 }}
+                                  onClick={async () => { await handleEditContrib(h, i.id, parseFloat(editContribMonto)); setEditingContrib(null); }}>✓</button>
+                              </div>
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{fmtFecha(h.fecha)}</span>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#34d399', marginLeft: 'auto' }}>+{fmt(h.monto)}</span>
+                                {!soloLectura && <>
+                                  <button className="del" style={{ width: 26, height: 26, minWidth: 26, fontSize: 11, color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)', padding: 0 }}
+                                    onClick={() => { setEditingContrib(h.id); setEditContribMonto(String(Math.round(h.monto))); }}>✎</button>
+                                  <button className="del" style={{ width: 26, height: 26, minWidth: 26, fontSize: 11, padding: 0 }}
+                                    onClick={() => handleDeleteContrib(h, i.id)}>✕</button>
+                                </>}
+                              </div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
                 {aportarId === i.id && (
                   <div className="mas-aportar">
                     <input type="text" inputMode="numeric" className="num" value={aporte.montoDisplay} onChange={handleAporteMonto} placeholder="Monto a aportar (₲)" style={{ flex: 1 }} />
                     <button className="mas-add-btn" onClick={() => handleAportar(i.id)}>Guardar</button>
+                  </div>
+                )}
+                {editingId === i.id && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <div className="row"><div className="field"><label>Nombre de la meta</label><input type="text" value={editForm.nombre} onChange={e => setEditForm(f => ({...f, nombre: e.target.value}))} /></div></div>
+                    <div className="row"><div className="field"><label>Monto objetivo (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto_meta ? String(editForm.monto_meta).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({...f, monto_meta: e.target.value.replace(/\D/g, '')}))} /></div></div>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
+                      <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
+                      <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditMeta(i.id)}>Guardar</button>
+                    </div>
                   </div>
                 )}
               </li>
@@ -1052,7 +1423,7 @@ function Metas({ userId }) {
 }
 
 /* ─── TARJETAS DE CRÉDITO ─── */
-function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
+function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const [cards, setCards] = useState([]);
   const [expenses, setExpenses] = useState({});
@@ -1136,7 +1507,11 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
   async function handleEditCiclo(e, cardId) {
     e.preventDefault();
     if (!cicloForm.fecha_cierre || !cicloForm.fecha_limite_pago) return;
-    await supabase.from('credit_cards').update({ fecha_cierre: cicloForm.fecha_cierre, fecha_limite_pago: cicloForm.fecha_limite_pago }).eq('id', cardId);
+    await supabase.from('credit_cards').update({
+      nombre: cicloForm.nombre.trim(),
+      fecha_cierre: cicloForm.fecha_cierre,
+      fecha_limite_pago: cicloForm.fecha_limite_pago,
+    }).eq('id', cardId);
     setEditCiclo(null);
     load();
   }
@@ -1164,20 +1539,51 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
     if (expanded === id) setExpanded(null);
   }
 
+  async function handleRevertirTarjeta(c, cardId) {
+    // Optimistic update — cambia UI inmediatamente
+    setExpenses(prev => ({
+      ...prev,
+      [cardId]: (prev[cardId] || []).map(e => e.id === c.id ? { ...e, estado: 'pendiente' } : e),
+    }));
+    const suffix = c.cuotas > 1 ? ` (${c.numero_cuota}/${c.cuotas})` : '';
+    const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${c.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
+    await supabase.from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id);
+    if (txs?.length) await supabase.from('transactions').delete().eq('id', txs[0].id);
+    load();
+  }
+
   async function handleDeleteExp(expId, cardId) {
     if (!window.confirm('¿Eliminar este gasto?')) return;
-    await supabase.from('card_expenses').delete().eq('id', expId);
+    const exp = (expenses[cardId] || []).find(e => e.id === expId);
+    if (exp) {
+      const suffix = exp.cuotas > 1 ? ` (${exp.numero_cuota}/${exp.cuotas})` : '';
+      const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${exp.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
+      await Promise.all([
+        supabase.from('card_expenses').delete().eq('id', expId),
+        txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
+      ]);
+    } else {
+      await supabase.from('card_expenses').delete().eq('id', expId);
+    }
     loadExpenses(cardId);
   }
 
   async function handleDeleteGrupo(grupoId, ids, cardId) {
     if (!window.confirm('¿Eliminar esta compra y todas sus cuotas?')) return;
+    // Borrar transacciones asociadas a los gastos pagados
+    const expsToDelete = (expenses[cardId] || []).filter(e => ids.includes(e.id) && e.estado === 'pagado');
+    for (const e of expsToDelete) {
+      const suffix = e.cuotas > 1 ? ` (${e.numero_cuota}/${e.cuotas})` : '';
+      const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${e.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
+      if (txs?.length) await supabase.from('transactions').delete().eq('id', txs[0].id);
+    }
     if (grupoId) {
       await supabase.from('card_expenses').delete().eq('grupo_id', grupoId);
     } else {
       await supabase.from('card_expenses').delete().in('id', ids);
     }
     loadExpenses(cardId);
+    load();
   }
 
   return (
@@ -1187,12 +1593,14 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
           <div className="mas-section-title">Tarjetas de Crédito</div>
           <div className="mas-section-sub">{cards.length} tarjeta{cards.length !== 1 ? 's' : ''}</div>
         </div>
-        <button className="mas-add-btn" onClick={() => setShowCardForm(v => !v)}>
-          {showCardForm ? '✕ Cerrar' : '+ Tarjeta'}
-        </button>
+        {!soloLectura && (
+          <button className="mas-add-btn" onClick={() => setShowCardForm(v => !v)}>
+            {showCardForm ? '✕ Cerrar' : '+ Tarjeta'}
+          </button>
+        )}
       </div>
 
-      {showCardForm && (
+      {!soloLectura && showCardForm && (
         <form className="mas-form" onSubmit={handleAddCard}>
           <div className="mas-form-title">Nueva tarjeta</div>
           <div className="row">
@@ -1229,16 +1637,16 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
                     <div className="sub">{pendTotal > 0 ? `Pendiente: ${fmt(pendTotal)}` : 'Sin gastos pendientes'} · Tocá ▼ para ver detalle</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="del" style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd', background: 'rgba(96,165,250,0.15)', borderColor: 'rgba(96,165,250,0.35)', width: 36, padding: 0 }} title="Agregar gasto"
+                    {!soloLectura && <button className="del" style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd', background: 'rgba(96,165,250,0.15)', borderColor: 'rgba(96,165,250,0.35)', width: 36, padding: 0 }} title="Agregar gasto"
                       onClick={() => { setShowExpForm(showExpForm === card.id ? null : card.id); setEditCiclo(null); setExpanded(card.id); if (!expenses[card.id]) loadExpenses(card.id); }}>
                       +
-                    </button>
-                    <button className="del" style={{ fontSize: 14, color: '#fcd34d', background: 'rgba(251,191,36,0.15)', borderColor: 'rgba(251,191,36,0.35)', width: 36, padding: 0 }} title="Editar ciclo"
-                      onClick={() => { setEditCiclo(editCiclo === card.id ? null : card.id); setCicloForm({ fecha_cierre: card.fecha_cierre || '', fecha_limite_pago: card.fecha_limite_pago || '' }); setShowExpForm(null); }}>
+                    </button>}
+                    {!soloLectura && <button className="del" style={{ fontSize: 14, color: '#fcd34d', background: 'rgba(251,191,36,0.15)', borderColor: 'rgba(251,191,36,0.35)', width: 36, padding: 0 }} title="Editar ciclo"
+                      onClick={() => { setEditCiclo(editCiclo === card.id ? null : card.id); setCicloForm({ nombre: card.nombre || '', fecha_cierre: card.fecha_cierre || '', fecha_limite_pago: card.fecha_limite_pago || '' }); setShowExpForm(null); }}>
                       ✏️
-                    </button>
+                    </button>}
                     <button className="del" style={{ fontSize: 13 }} onClick={() => toggleExpand(card.id)}>{expanded === card.id ? '▲' : '▼'}</button>
-                    <button className="del" onClick={() => handleDeleteCard(card.id)} title="Eliminar tarjeta">✕</button>
+                    {!soloLectura && <button className="del" onClick={() => handleDeleteCard(card.id)} title="Eliminar tarjeta">✕</button>}
                   </div>
                 </div>
 
@@ -1246,6 +1654,10 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
                   <form className="mas-form" style={{ marginTop: 12, marginBottom: 0 }} onSubmit={e => handleEditCiclo(e, card.id)}>
                     <div className="mas-form-title">Editar ciclo actual</div>
                     <div className="field">
+                      <label>Nombre</label>
+                      <input type="text" value={cicloForm.nombre} onChange={e => setCicloForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Visa, Mastercard..." required />
+                    </div>
+                    <div className="field" style={{ marginTop: 10 }}>
                       <label>Fecha de cierre</label>
                       <input type="date" value={cicloForm.fecha_cierre} onChange={e => setCicloForm(f => ({ ...f, fecha_cierre: e.target.value }))} required />
                     </div>
@@ -1360,21 +1772,12 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp }) {
                                   </span>
                                   <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', flex: 1 }}>{fmtFecha(c.fecha_compra)}</span>
                                   <span style={{ fontSize: 12, fontWeight: 700, color: c.estado === 'pagado' ? '#34d399' : '#f87171' }}>{fmt(c.monto)}</span>
-                                  {c.estado !== 'pagado' ? (
+                                  {!soloLectura && (c.estado !== 'pagado' ? (
                                     <button className="cuota-pay-btn" onClick={() => handlePagarTarjeta(c.id, card.id)}>✓ Pagar</button>
                                   ) : (
                                     <button className="cuota-pay-btn" style={{ background: 'rgba(251,146,60,0.15)', borderColor: 'rgba(251,146,60,0.3)', color: '#fb923c' }}
-                                      onClick={async () => {
-                                        if (!window.confirm(`¿Revertir pago?`)) return;
-                                        const suffix = c.cuotas > 1 ? ` (${c.numero_cuota}/${c.cuotas})` : '';
-                                        const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${c.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
-                                        await Promise.all([
-                                          supabase.from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id),
-                                          txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
-                                        ]);
-                                        loadExpenses(card.id);
-                                      }}>↩ Revertir</button>
-                                  )}
+                                      onClick={() => handleRevertirTarjeta(c, card.id)}>↩ Revertir</button>
+                                  ))}
                                 </div>
                               ))}
                             </div>
@@ -1640,12 +2043,12 @@ function Perfil({ userId, userEmail }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Nombre de cuentas</div>
           <div className="field" style={{ margin: 0 }}>
             <label>{plan === 'negocio' ? 'Cuenta 1 (negocio)' : 'Nombre de tu cuenta'}</label>
-            <input type="text" value={cuenta1} onChange={e => setCuenta1(e.target.value)} placeholder={plan === 'negocio' ? 'Ej: Mi Tienda' : 'Ej: Personal'} required />
+            <input type="text" maxLength={20} value={cuenta1} onChange={e => setCuenta1(e.target.value)} placeholder={plan === 'negocio' ? 'Ej: Mi Tienda' : 'Ej: Personal'} required />
           </div>
           {plan === 'negocio' && (
             <div className="field" style={{ margin: 0 }}>
               <label>Cuenta 2 (personal)</label>
-              <input type="text" value={cuenta2} onChange={e => setCuenta2(e.target.value)} placeholder="Ej: Personal" required />
+              <input type="text" maxLength={20} value={cuenta2} onChange={e => setCuenta2(e.target.value)} placeholder="Ej: Personal" required />
             </div>
           )}
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.5 }}>
@@ -1681,18 +2084,26 @@ export default function Mas() {
   const [activeTab, setActiveTab] = useState('resumen');
   const [isAdmin, setIsAdmin] = useState(false);
   const [cfg, setCfg] = useState(null);
+  const [soloLectura, setSoloLectura] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!data.session) { router.push('/login'); return; }
       const userId = data.session.user.id;
       const email = data.session.user.email;
-      const [{ data: profile }, { data: uc }] = await Promise.all([
-        supabase.from('user_profiles').select('role').eq('id', userId).single(),
+      const [{ data: uc }, { data: lic }] = await Promise.all([
         supabase.from('user_config').select('*').eq('user_id', userId).single(),
+        supabase.from('licencias').select('activo, solo_lectura').eq('email', email).single(),
       ]);
-      setIsAdmin(profile?.role === 'admin');
+      setIsAdmin(email === ADMIN_EMAIL);
       setCfg(uc ? buildCfgFromDB(uc) : getUserConfig(email));
+      const adminSetSoloLectura = !!(lic?.activo && lic?.solo_lectura);
+      const demoExpired = !lic?.activo && (() => {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const regDate = new Date(uc?.fecha_registro || new Date()); regDate.setHours(0,0,0,0);
+        return 7 - Math.ceil((today - regDate) / 86400000) <= 0;
+      })();
+      setSoloLectura(adminSetSoloLectura || demoExpired);
       setSession(data.session);
     });
   }, [router]);
@@ -1703,12 +2114,12 @@ export default function Mas() {
   const renderTab = () => {
     switch (activeTab) {
       case 'resumen': return <Resumen userId={session.user.id} cfg={cfg} />;
-      case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} cfg={cfg} />;
-      case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} cfg={cfg} />;
-      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} cfg={cfg} />;
-      case 'cobros': return <Cobros userId={session.user.id} userEmail={email} cfg={cfg} />;
-      case 'deudas': return <Deudas userId={session.user.id} userEmail={email} cfg={cfg} />;
-      case 'metas': return <Metas userId={session.user.id} />;
+      case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
+      case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
+      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
+      case 'cobros': return <Cobros userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
+      case 'deudas': return <Deudas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
+      case 'metas': return <Metas userId={session.user.id} soloLectura={soloLectura} />;
       case 'perfil': return <Perfil userId={session.user.id} userEmail={email} />;
       default: return null;
     }

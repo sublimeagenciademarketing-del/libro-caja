@@ -77,6 +77,7 @@ export default function OnboardingPage() {
                 type="text"
                 value={cuenta1}
                 onChange={e => setCuenta1(e.target.value)}
+                maxLength={20}
                 placeholder={plan === 'personal' ? 'Ej: Personal' : 'Ej: Mi Tienda'}
                 style={inputStyle}
                 autoFocus
@@ -89,6 +90,7 @@ export default function OnboardingPage() {
                   type="text"
                   value={cuenta2}
                   onChange={e => setCuenta2(e.target.value)}
+                  maxLength={20}
                   placeholder="Ej: Personal"
                   style={inputStyle}
                 />

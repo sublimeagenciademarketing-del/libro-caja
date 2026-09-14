@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
@@ -13,6 +13,10 @@ export default function LoginPage() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('registro') === '1') setTab('register');
+  }, []);
 
   async function handleLogin(e) {
     e.preventDefault();

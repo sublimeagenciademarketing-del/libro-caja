@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
 
@@ -76,7 +76,7 @@ function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2, size = 9
   );
 }
 
-function DonutDuo({ total1, total2, cfg, transactions, projection }) {
+function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
   const now = new Date();
   const m = now.getMonth() + 1;
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
@@ -111,11 +111,40 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
     - (projection.tarjetas || []).reduce((s, r) => s + (r.monto || 0), 0) : null;
   const projPos = projTotal !== null && projTotal >= 0;
 
+  const projScrollRef = useRef(null);
+  const [projShowHint, setProjShowHint] = useState(true);
+
+  function calcFuturoCuenta(c, mo) {
+    if (!rawData) return { inc: 0, exp: 0, result: 0 };
+    const { mesStr, mesStart, mesEnd, i } = mo;
+    const inc = rawData.cobros.filter(r => r.cuenta === c && r.fecha_esperada >= mesStart && r.fecha_esperada <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
+    const now2 = new Date();
+    const mesGastos = rawData.gastos.filter(g => {
+      if (g.cuenta !== c) return false;
+      if (i === 0) {
+        if (g.frecuencia === 'semanal') {
+          if (!g.pagado_fecha) return true;
+          return Math.floor((now2 - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 7;
+        }
+        if (g.frecuencia === 'quincenal') {
+          if (!g.pagado_fecha) return true;
+          return Math.floor((now2 - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 15;
+        }
+        return g.pagado_mes !== mesStr;
+      }
+      return true;
+    });
+    const exp = rawData.deudas.filter(r => r.cuenta === c && r.fecha_limite >= mesStart && r.fecha_limite <= mesEnd).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + rawData.cuotas.filter(r => r.installment_purchases?.cuenta === c && r.fecha_vencimiento >= mesStart && r.fecha_vencimiento <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0)
+      + mesGastos.reduce((s, r) => s + (r.monto || 0), 0)
+      + rawData.tarjetas.filter(r => r.cuenta === c && r.fecha >= mesStart && r.fecha <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
+    return { inc, exp, result: inc - exp };
+  }
+
   if (cfg.single) {
     return (
       <div className="donut-duo">
         <div className="donut-col" style={{ margin: '0 auto' }}>
-          <div className="donut-label-top">Este mes</div>
           <DonutSmall a={ingTotal} b={gasTotal} idSuffix="mes-s" size={110}
             colorA="#4ade80" colorB="#f87171" />
           <div className="donut-legs">
@@ -123,28 +152,58 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
             <span style={{ color: '#f87171' }}>Gastos</span>
           </div>
         </div>
-        <div className={`donut-mes-bal${balanceActual >= 0 ? ' pos' : ' neg'}`}>
-          {mesNombre}: {balanceActual >= 0 ? '+' : '−'}{fmt(Math.abs(balanceActual))}
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center' }}>Este mes</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Ingresos</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#4ade80' }}>+{fmt(ingTotal)}</span>
+            </div>
+            <div style={{ flex: 1, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 12, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>Gastos</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#f87171' }}>−{fmt(gasTotal)}</span>
+            </div>
+          </div>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>En caja · {mesNombre}</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: balanceActual >= 0 ? '#34d399' : '#f87171' }}>
+              {balanceActual >= 0 ? '+' : '−'}{fmt(Math.abs(balanceActual))}
+            </span>
+          </div>
         </div>
-        {proj1 !== null && (
-          <div style={{ display: 'flex', gap: 10, margin: '4px 0 8px', width: '100%' }}>
-            <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '3px 12px' }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 17V13M12 17V9M16 17V12"/></svg> Proyección {mesNombre}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
-                <span style={{ fontSize: 12, color: '#34d399', fontWeight: 700 }}>+{fmt(proj1.inc)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
-                <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700 }}>−{fmt(proj1.exp)}</span>
-              </div>
-              <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
-                <span style={{ fontSize: 13, color: proj1.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800 }}>{proj1.result >= 0 ? '+' : '−'}{fmt(Math.abs(proj1.result))}</span>
-              </div>
+        {(proj1 !== null || rawData) && (
+          <div style={{ width: '100%', margin: '4px 0 8px' }}>
+            <div
+              ref={projScrollRef}
+              onScroll={() => { if (projScrollRef.current?.scrollLeft > 10) setProjShowHint(false); }}
+              style={{ display: 'flex', overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            >
+              {(rawData?.months || [{ i: 0, mesStr, nombre: mesNombre, añoDistinto: false }]).map((mo, idx) => {
+                const p = idx === 0 && proj1 ? proj1 : calcFuturoCuenta(cfg.c1, mo);
+                return (
+                  <div key={mo.mesStr || idx} style={{ minWidth: '100%', flexShrink: 0, scrollSnapAlign: 'start' }}>
+                    <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        Proyección {mo.nombre}{mo.añoDistinto ? ` ${mo.año}` : ''}
+                        {idx === 0 && projShowHint && rawData && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 400, animation: 'pulse 1.5s infinite' }}>deslizá →</span>}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
+                        <span style={{ fontSize: 12, color: '#34d399', fontWeight: 700 }}>+{fmt(p.inc)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
+                        <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700 }}>−{fmt(p.exp)}</span>
+                      </div>
+                      <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado esperado</span>
+                        <span style={{ fontSize: 13, color: p.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800 }}>{p.result >= 0 ? '+' : '−'}{fmt(Math.abs(p.result))}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -181,36 +240,81 @@ function DonutDuo({ total1, total2, cfg, transactions, projection }) {
           <span style={{ color: '#f87171' }}>Gastos</span>
         </div>
       </div>
-      {proj1 !== null && (
-        <div style={{ width: '100%', margin: '4px 0 8px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '4px 14px' }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.55)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 17V13M12 17V9M16 17V12"/></svg> Proyección {mesNombre}</span>
+      <div style={{ width: '100%', margin: '4px 0 8px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, textAlign: 'center' }}>Este mes</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+        {[{ label: cfg.l1, ing: ing1, gas: gas1 }, { label: cfg.l2, ing: ing2, gas: gas2 }].map(({ label, ing, gas }) => (
+          <div key={label} style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Ingresos</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#4ade80' }}>+{fmt(ing)}</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Gastos</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171' }}>−{fmt(gas)}</span>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            {[{ label: cfg.l1, p: proj1 }, ...(proj2 !== null ? [{ label: cfg.l2, p: proj2 }] : [])].map(({ label, p }) => (
-              <div key={label} style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
-                  <span style={{ fontSize: 12, color: '#34d399', fontWeight: 700 }}>+{fmt(p.inc)}</span>
+        ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          {[{ label: cfg.l1, bal: bal1 }, { label: cfg.l2, bal: bal2 }].map(({ label, bal }) => (
+            <div key={label} style={{ flex: 1, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>En caja · {mesNombre}</span>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{label}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: bal >= 0 ? '#34d399' : '#f87171' }}>
+                {bal >= 0 ? '+' : '−'}{fmt(Math.abs(bal))}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {(proj1 !== null || rawData) && (
+        <div style={{ width: '100%', margin: '4px 0 8px' }}>
+          <div
+            ref={projScrollRef}
+            onScroll={() => { if (projScrollRef.current?.scrollLeft > 10) setProjShowHint(false); }}
+            style={{ display: 'flex', width: '100%', overflowX: 'auto', scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+          >
+            {(rawData?.months || [{ i: 0, mesStr, nombre: mesNombre, añoDistinto: false }]).map((mo, idx) => {
+              const p1 = idx === 0 && proj1 ? proj1 : calcFuturoCuenta(cfg.c1, mo);
+              const p2 = cfg.single ? null : (idx === 0 && proj2 ? proj2 : calcFuturoCuenta(cfg.c2, mo));
+              return (
+                <div key={mo.mesStr || idx} style={{ minWidth: '100%', flexShrink: 0, scrollSnapAlign: 'start' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                    Proyección {mo.nombre}{mo.añoDistinto ? ` ${mo.año}` : ''}
+                    {idx === 0 && projShowHint && rawData && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 400, animation: 'pulse 1.5s infinite' }}>deslizá →</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {[{ label: cfg.l1, p: p1 }, ...(p2 !== null ? [{ label: cfg.l2, p: p2 }] : [])].map(({ label, p }) => (
+                      <div key={label} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
+                          <span style={{ fontSize: 11, color: '#34d399', fontWeight: 700, textAlign: 'right' }}>+{fmt(p.inc)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
+                          <span style={{ fontSize: 11, color: '#f87171', fontWeight: 700, textAlign: 'right' }}>−{fmt(p.exp)}</span>
+                        </div>
+                        <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
+                          <span style={{ fontSize: 12, color: p.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800, textAlign: 'right' }}>{p.result >= 0 ? '+' : '−'}{fmt(Math.abs(p.result))}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
-                  <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700 }}>−{fmt(p.exp)}</span>
-                </div>
-                <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
-                  <span style={{ fontSize: 13, color: p.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800 }}>{p.result >= 0 ? '+' : '−'}{fmt(Math.abs(p.result))}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
     </div>
   );
 }
+
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const WA_NUMBER = '595986313704';
@@ -219,6 +323,12 @@ function buildCfgFromDB(uc) {
   const c1 = uc.cuenta1.toLowerCase();
   const c2 = uc.cuenta2 ? uc.cuenta2.toLowerCase() : null;
   return { c1, c2, l1: uc.cuenta1, l2: uc.cuenta2 || null, single: !uc.cuenta2 };
+}
+
+function shortLabel(v, max = 18) {
+  if (!v) return '';
+  const s = String(v).includes('@') ? String(v).split('@')[0] : String(v);
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
 }
 
 export default function Home() {
@@ -231,13 +341,16 @@ export default function Home() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminBadge, setAdminBadge] = useState(0);
   const [projection, setProjection] = useState(null);
+  const [futureRawData, setFutureRawData] = useState(null);
   const [notifs, setNotifs] = useState(null);
   const [showNotif, setShowNotif] = useState(false);
   const [licStatus, setLicStatus] = useState('loading'); // loading | demo | active | expiring | blocked
   const [diasRestantes, setDiasRestantes] = useState(null);
   const [showInstall, setShowInstall] = useState(false);
+  const installPromptRef = useRef(null);
   const isStandalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches;
   const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  const isIOS = typeof window !== 'undefined' && /iPhone|iPad/i.test(navigator.userAgent);
   const showInstallBtn = isMobile && !isStandalone;
 
   const [monto, setMonto] = useState('');
@@ -283,7 +396,9 @@ export default function Home() {
       const { data: lic } = await supabase.from('licencias').select('*').eq('email', email).single();
       const today = new Date(); today.setHours(0,0,0,0);
       const todayStr = today.toISOString().slice(0,10);
-      if (lic && lic.activo) {
+      if (lic && lic.activo && lic.solo_lectura) {
+        setLicStatus('solo_lectura');
+      } else if (lic && lic.activo) {
         const vence = new Date(lic.fecha_vencimiento); vence.setHours(0,0,0,0);
         const dias = Math.ceil((vence - today) / 86400000);
         if (dias < 0) { setLicStatus('blocked'); setDiasRestantes(0); }
@@ -293,27 +408,62 @@ export default function Home() {
         // Demo: 7 days from fecha_registro
         const regDate = new Date(uc.fecha_registro || todayStr); regDate.setHours(0,0,0,0);
         const diasDemo = 7 - Math.ceil((today - regDate) / 86400000);
-        if (diasDemo <= 0) { setLicStatus('blocked'); setDiasRestantes(0); }
+        if (diasDemo <= 0) { setLicStatus('solo_lectura'); setDiasRestantes(0); }
         else { setLicStatus('demo'); setDiasRestantes(diasDemo); }
       }
     }
 
-    const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', userId).single();
-    const isAdminUser = profile?.role === 'admin';
+    const isAdminUser = email === ADMIN_EMAIL;
     setIsAdmin(isAdminUser);
 
     if (isAdminUser) {
-      const [{ data: adminUc }, { data: configs }] = await Promise.all([
-        supabase.from('user_config').select('admin_last_visit').eq('user_id', userId).single(),
-        supabase.from('user_config').select('email, fecha_registro'),
-      ]);
-      const lastVisit = adminUc?.admin_last_visit || '2000-01-01T00:00:00Z';
-      const newCount = (configs || []).filter(c =>
-        c.email !== ADMIN_EMAIL && c.fecha_registro && c.fecha_registro > lastVisit
-      ).length;
-      setAdminBadge(newCount);
+      const { data: configs } = await supabase.from('user_config').select('email');
+      const totalUsers = (configs || []).filter(c => c.email !== ADMIN_EMAIL).length;
+      const lastSeen = parseInt(localStorage.getItem('admin_seen_users_count') || '0', 10);
+      setAdminBadge(Math.max(0, totalUsers - lastSeen));
     }
   }
+
+  useEffect(() => {
+    let onSwMessage;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').then(r => r.update()).catch(() => {});
+      onSwMessage = (e) => {
+        if (e.data?.type !== 'SW_UPDATED') return;
+        if (sessionStorage.getItem('sw_version') === e.data.version) return;
+        sessionStorage.setItem('sw_version', e.data.version);
+        window.location.reload();
+      };
+      navigator.serviceWorker.addEventListener('message', onSwMessage);
+    }
+    const handler = (e) => { e.preventDefault(); installPromptRef.current = e; };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handler);
+      if (onSwMessage) navigator.serviceWorker.removeEventListener('message', onSwMessage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || typeof document === 'undefined') return;
+    const notifCount = notifs ? (notifs.overdue.length + notifs.upcoming.length) : 0;
+    const count = notifCount + adminBadge;
+    const setBadge = () => {
+      if (!('setAppBadge' in navigator)) return;
+      if (count > 0) navigator.setAppBadge(count).catch(() => {});
+      else navigator.clearAppBadge?.().catch(() => {});
+    };
+    const clearBadge = () => {
+      if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
+    };
+    const onVisibility = () => {
+      if (document.hidden) setBadge();
+      else clearBadge();
+    };
+    clearBadge();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [notifs, adminBadge]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -326,6 +476,29 @@ export default function Home() {
     return () => listener.subscription.unsubscribe();
   }, [router]);
 
+  useEffect(() => {
+    async function onVisible() {
+      if (document.visibilityState !== 'visible') return;
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return;
+      const userId = data.session.user.id;
+      loadNotifications(userId);
+      loadProjection(userId);
+      if (data.session.user.email !== ADMIN_EMAIL) return;
+      const [{ data: adminUc }, { data: configs }] = await Promise.all([
+        supabase.from('user_config').select('admin_last_visit').eq('user_id', userId).single(),
+        supabase.from('user_config').select('email, fecha_registro'),
+      ]);
+      const lastVisit = adminUc?.admin_last_visit || '2000-01-01T00:00:00Z';
+      const newCount = (configs || []).filter(c =>
+        c.email !== ADMIN_EMAIL && c.fecha_registro && c.fecha_registro > lastVisit
+      ).length;
+      setAdminBadge(newCount);
+    }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
+
   const loadProjection = useCallback(async (userId) => {
     const now = new Date();
     const y = now.getFullYear(), mo = now.getMonth();
@@ -336,16 +509,58 @@ export default function Home() {
       supabase.from('receivables').select('monto, cuenta, estado').eq('user_id', userId).gte('fecha_esperada', mesStart).lte('fecha_esperada', mesEnd),
       supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
       supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes').eq('user_id', userId).eq('activo', true),
+      supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
       supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).eq('estado', 'pendiente').gte('fecha', mesStart).lte('fecha', mesEnd),
     ]);
+    const mesStr = `${y}-${m}`;
+    const filterGasto = (g) => {
+      if (g.frecuencia === 'semanal') {
+        if (!g.pagado_fecha) return true;
+        return Math.floor((now - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 7;
+      }
+      if (g.frecuencia === 'quincenal') {
+        if (!g.pagado_fecha) return true;
+        return Math.floor((now - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 15;
+      }
+      return g.pagado_mes !== mesStr;
+    };
     setProjection({
       cobros: (r1.data || []).filter(r => r.estado !== 'cobrado'),
       deudas: (r2.data || []).filter(r => r.estado !== 'pagado'),
       cuotas: (r3.data || []).filter(r => r.installment_purchases),
-      gastos: (r4.data || []).filter(g => g.pagado_mes !== `${y}-${m}`),
+      gastos: (r4.data || []).filter(filterGasto),
       tarjetas: r5.data || [],
     });
+  }, []);
+
+  const loadFutureProjections = useCallback(async (userId) => {
+    const now = new Date();
+    const nowStr = now.toISOString().slice(0, 10);
+    const futureEnd = new Date(now.getFullYear(), now.getMonth() + 13, 0);
+    const futureEndStr = futureEnd.toISOString().slice(0, 10);
+    const [r1, r2, r3, r4, r5] = await Promise.all([
+      supabase.from('receivables').select('monto, cuenta, estado, fecha_esperada').eq('user_id', userId).gte('fecha_esperada', nowStr).lte('fecha_esperada', futureEndStr),
+      supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, fecha_limite').eq('user_id', userId).gte('fecha_limite', nowStr).lte('fecha_limite', futureEndStr),
+      supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', nowStr).lte('fecha_vencimiento', futureEndStr).eq('installment_purchases.user_id', userId),
+      supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
+      supabase.from('card_expenses').select('monto, cuenta, estado, fecha').eq('user_id', userId).eq('estado', 'pendiente').gte('fecha', nowStr).lte('fecha', futureEndStr),
+    ]);
+    const cobros = (r1.data || []).filter(r => r.estado !== 'cobrado');
+    const deudas = (r2.data || []).filter(r => r.estado !== 'pagado');
+    const cuotas = (r3.data || []).filter(r => r.installment_purchases);
+    const gastos = r4.data || [];
+    const tarjetas = r5.data || [];
+    const thisYear = now.getFullYear();
+    const months = [];
+    for (let i = 0; i <= 12; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const y = d.getFullYear(), mo = d.getMonth();
+      const m = String(mo + 1).padStart(2, '0');
+      const mesStr = `${y}-${m}`;
+      const lastDay = new Date(y, mo + 1, 0).getDate();
+      months.push({ i, mesStr, nombre: MESES[mo], año: y, añoDistinto: y !== thisYear, mesStart: `${y}-${m}-01`, mesEnd: `${y}-${m}-${String(lastDay).padStart(2, '0')}` });
+    }
+    setFutureRawData({ cobros, deudas, cuotas, gastos, tarjetas, months });
   }, []);
 
   const loadNotifications = useCallback(async (userId, userCfg) => {
@@ -356,11 +571,12 @@ export default function Home() {
     const currentMes = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
     const lastDay = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
 
-    const [r1, r2, r3, r4] = await Promise.all([
+    const [r1, r2, r3, r4, r5] = await Promise.all([
       supabase.from('receivables').select('cliente, monto, fecha_esperada, cuenta, estado').eq('user_id', userId),
       supabase.from('debts').select('acreedor, monto_total, monto_pagado, fecha_limite, cuenta, estado').eq('user_id', userId),
       supabase.from('installments').select('monto, fecha_vencimiento, estado, installment_purchases!inner(descripcion, user_id, cuenta)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('descripcion, monto, dia_vencimiento, cuenta, pagado_mes').eq('user_id', userId).eq('activo', true),
+      supabase.from('recurring_expenses').select('descripcion, monto, dia_vencimiento, cuenta, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
+      supabase.from('card_expenses').select('descripcion, monto, fecha, cuenta, estado').eq('user_id', userId).eq('estado', 'pendiente'),
     ]);
 
     const overdue = [], upcoming = [];
@@ -384,12 +600,22 @@ export default function Home() {
     });
 
     (r4.data || []).forEach(g => {
-      if (g.pagado_mes === currentMes) return;
-      const dueDay = Math.min(g.dia_vencimiento, lastDay);
+      const diasDesde = g.pagado_fecha ? Math.floor((today - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) : 999;
+      const pendiente = g.frecuencia === 'semanal' ? diasDesde >= 7
+        : g.frecuencia === 'quincenal' ? diasDesde >= 15
+        : g.pagado_mes !== currentMes;
+      if (!pendiente) return;
+      const dueDay = Math.min(g.dia_vencimiento || 1, lastDay);
       const dueDate = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(dueDay).padStart(2,'0')}`;
       const item = { tipo: 'gasto', label: g.descripcion, monto: g.monto, fecha: dueDate, cuenta: g.cuenta };
       if (dueDate < todayStr) overdue.push(item);
       else if (dueDate <= in7Str) upcoming.push(item);
+    });
+
+    (r5.data || []).forEach(t => {
+      const item = { tipo: 'cuota', label: t.descripcion || 'Tarjeta', monto: t.monto, fecha: t.fecha, cuenta: t.cuenta };
+      if (t.fecha < todayStr) overdue.push(item);
+      else if (t.fecha <= in7Str) upcoming.push(item);
     });
 
     overdue.sort((a, b) => a.fecha < b.fecha ? -1 : 1);
@@ -411,9 +637,10 @@ export default function Home() {
     if (session) {
       loadTransactions(session.user.id);
       loadProjection(session.user.id);
+      loadFutureProjections(session.user.id);
       loadNotifications(session.user.id);
     }
-  }, [session, loadTransactions, loadProjection, loadNotifications]);
+  }, [session, loadTransactions, loadProjection, loadFutureProjections, loadNotifications]);
 
   useEffect(() => {
     setFecha(new Date().toISOString().slice(0, 10));
@@ -470,12 +697,14 @@ export default function Home() {
 
   const anioActual = new Date().getFullYear();
   const mesFiltroStr = `${anioActual}-${String(mesFiltro + 1).padStart(2, '0')}`;
+  const sameCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+
   const filtered = transactions
     .filter(t => t.fecha && t.fecha.startsWith(mesFiltroStr))
-    .filter(t => filter === 'todos' || t.cuenta === filter);
+    .filter(t => filter === 'todos' || sameCuenta(t.cuenta, filter));
 
   const sumFor = (c) =>
-    transactions.filter((t) => t.cuenta === c)
+    transactions.filter((t) => sameCuenta(t.cuenta, c))
       .reduce((acc, t) => acc + (t.tipo === 'ingreso' ? t.monto : -t.monto), 0);
 
   const total1 = sumFor(cfg.c1);
@@ -504,7 +733,9 @@ export default function Home() {
       <div className="top-bar">
         <div>
           <h1>MiCaja</h1>
-          <p>{cfg.single ? cfg.l1 : `${cfg.l1} & ${cfg.l2}`}</p>
+          <p title={cfg.single ? cfg.l1 : `${cfg.l1} & ${cfg.l2}`}>
+            {cfg.single ? shortLabel(cfg.l1, 20) : `${shortLabel(cfg.l1, 12)} & ${shortLabel(cfg.l2, 12)}`}
+          </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="mas-btn" onClick={() => router.push('/mas')}>☰ Más</button>
@@ -531,7 +762,15 @@ export default function Home() {
             )}
           </button>
           {showInstallBtn && (
-            <button onClick={() => setShowInstall(v => !v)} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 10, height: 38, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', cursor: 'pointer', boxShadow: '0 2px 12px rgba(99,102,241,0.35)' }} title="Instalar en pantalla de inicio">
+            <button onClick={async () => {
+              if (installPromptRef.current) {
+                installPromptRef.current.prompt();
+                const { outcome } = await installPromptRef.current.userChoice;
+                if (outcome === 'accepted') installPromptRef.current = null;
+              } else if (isIOS) {
+                setShowInstall(v => !v);
+              }
+            }} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 10, height: 38, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', cursor: 'pointer', boxShadow: '0 2px 12px rgba(99,102,241,0.35)' }} title="Instalar en pantalla de inicio">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 6v8M9 11l3 3 3-3"/></svg>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>Instalar</span>
             </button>
@@ -550,7 +789,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Instalar MiCaja</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Accedé como una app desde tu celular</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Seguí estos pasos en Safari</div>
                 </div>
               </div>
               <button onClick={() => setShowInstall(false)} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.5)', width: 28, height: 28, borderRadius: 8, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
@@ -580,27 +819,6 @@ export default function Home() {
               </div>
             </div>
 
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.07)', marginBottom: 12 }} />
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-                <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(52,211,153,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🤖</div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#34d399' }}>Android (Chrome)</span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {[
-                  { n: 1, text: 'Abrí esta página en', bold: 'Chrome' },
-                  { n: 2, text: 'Tocá el menú', bold: '⋮', sub: '(tres puntos, arriba a la derecha)' },
-                  { n: 3, text: 'Elegí', bold: '"Agregar a pantalla de inicio"' },
-                  { n: 4, text: 'Tocá', bold: '"Agregar"' },
-                ].map(s => (
-                  <div key={s.n} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                    <span style={{ minWidth: 20, height: 20, borderRadius: 6, background: 'rgba(52,211,153,0.12)', color: '#34d399', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</span>
-                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>{s.text} <b style={{ color: '#fff' }}>{s.bold}</b>{s.sub ? <span style={{ color: 'rgba(255,255,255,0.35)' }}> {s.sub}</span> : ''}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
       )}
@@ -650,11 +868,15 @@ export default function Home() {
         <div className={`hero-number${totalGeneral < 0 ? ' neg' : ''}`}>
           {totalGeneral < 0 ? '−' : ''}{fmt(totalGeneral)}
         </div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
+          {cfg.single ? 'Acumulado de todos los meses' : `Acumulado de todos los meses · ${cfg.l1} y ${cfg.l2}`}
+        </div>
       </div>
 
-      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} projection={projection} />
+      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} projection={projection} rawData={futureRawData} />
 
       {!cfg.single && <div className="totals">
+        <div style={{ gridColumn: '1/-1', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, textAlign: 'center' }}>En caja · total acumulado</div>
         <div className="cell sublime">
           <div className="label">{cfg.l1}</div>
           <div className={`amount${total1 < 0 ? ' neg' : ''}`}>
@@ -669,7 +891,12 @@ export default function Home() {
           </div>
       </div>}
 
-      <form className="entry" onSubmit={handleAdd}>
+      {licStatus === 'solo_lectura' && (
+        <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, padding: '10px 16px', marginBottom: 12, fontSize: 13, color: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>
+          Tu cuenta está en modo <b style={{ color: '#fbbf24' }}>solo lectura</b>. Contactanos para reactivar.
+        </div>
+      )}
+      <form className="entry" onSubmit={handleAdd} style={{ display: licStatus === 'solo_lectura' ? 'none' : undefined }}>
         <div className="entry-title">Nuevo movimiento</div>
         <div className="row">
           <div className="field" style={{ flex: 1.4 }}>

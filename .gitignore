@@ -5,3 +5,10 @@ node_modules/
 .DS_Store
 
 .vercel
+
+# Archivos locales que no deben publicarse
+recovery-codes.txt
+*.msi
+Screenshot_*.png
+solo s blanco.png
+.claude/
