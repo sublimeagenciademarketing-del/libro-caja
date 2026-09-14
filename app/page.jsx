@@ -82,10 +82,14 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
   const del_mes = transactions.filter(t => t.fecha && t.fecha.startsWith(mesStr));
 
-  const ing1 = del_mes.filter(t => t.tipo === 'ingreso' && t.cuenta === cfg.c1).reduce((s, t) => s + t.monto, 0);
-  const gas1 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c1).reduce((s, t) => s + t.monto, 0);
-  const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && t.cuenta === cfg.c2).reduce((s, t) => s + t.monto, 0);
-  const gas2 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c2).reduce((s, t) => s + t.monto, 0);
+  // Con una sola cuenta todo pertenece a esa cuenta, aunque el registro
+  // guarde un nombre viejo de antes de renombrarla.
+  const deCuenta = (valor, c) => cfg.single || mismaCuenta(valor, c);
+
+  const ing1 = del_mes.filter(t => t.tipo === 'ingreso' && deCuenta(t.cuenta, cfg.c1)).reduce((s, t) => s + t.monto, 0);
+  const gas1 = del_mes.filter(t => t.tipo === 'gasto' && deCuenta(t.cuenta, cfg.c1)).reduce((s, t) => s + t.monto, 0);
+  const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s, t) => s + t.monto, 0);
+  const gas2 = del_mes.filter(t => t.tipo === 'gasto' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s, t) => s + t.monto, 0);
   const ingTotal = del_mes.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + t.monto, 0);
   const gasTotal = del_mes.filter(t => t.tipo === 'gasto').reduce((s, t) => s + t.monto, 0);
   const bal1 = ing1 - gas1, bal2 = ing2 - gas2;
@@ -94,11 +98,11 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
 
   function calcProjCuenta(c, balActual) {
     if (!projection) return null;
-    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
-    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
-      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0)
-      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0)
-      + (projection.tarjetas || []).filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
+    const inc = projection.cobros.filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0);
+    const exp = projection.deudas.filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + projection.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0)
+      + projection.gastos.filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0)
+      + (projection.tarjetas || []).filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0);
     return { inc, exp, result: balActual + inc - exp };
   }
   const proj1 = calcProjCuenta(cfg.c1, bal1);
@@ -117,10 +121,10 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
   function calcFuturoCuenta(c, mo) {
     if (!rawData) return { inc: 0, exp: 0, result: 0 };
     const { mesStr, mesStart, mesEnd, i } = mo;
-    const inc = rawData.cobros.filter(r => r.cuenta === c && r.fecha_esperada >= mesStart && r.fecha_esperada <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
+    const inc = rawData.cobros.filter(r => deCuenta(r.cuenta, c) && r.fecha_esperada >= mesStart && r.fecha_esperada <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
     const now2 = new Date();
     const mesGastos = rawData.gastos.filter(g => {
-      if (g.cuenta !== c) return false;
+      if (!deCuenta(g.cuenta, c)) return false;
       if (i === 0) {
         if (g.frecuencia === 'semanal') {
           if (!g.pagado_fecha) return true;
@@ -134,10 +138,10 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
       }
       return true;
     });
-    const exp = rawData.deudas.filter(r => r.cuenta === c && r.fecha_limite >= mesStart && r.fecha_limite <= mesEnd).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
-      + rawData.cuotas.filter(r => r.installment_purchases?.cuenta === c && r.fecha_vencimiento >= mesStart && r.fecha_vencimiento <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0)
+    const exp = rawData.deudas.filter(r => deCuenta(r.cuenta, c) && r.fecha_limite >= mesStart && r.fecha_limite <= mesEnd).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + rawData.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c) && r.fecha_vencimiento >= mesStart && r.fecha_vencimiento <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0)
       + mesGastos.reduce((s, r) => s + (r.monto || 0), 0)
-      + rawData.tarjetas.filter(r => r.cuenta === c && r.fecha >= mesStart && r.fecha <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
+      + rawData.tarjetas.filter(r => deCuenta(r.cuenta, c) && r.fecha >= mesStart && r.fecha <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
     return { inc, exp, result: inc - exp };
   }
 
@@ -324,6 +328,8 @@ function buildCfgFromDB(uc) {
   const c2 = uc.cuenta2 ? uc.cuenta2.toLowerCase() : null;
   return { c1, c2, l1: uc.cuenta1, l2: uc.cuenta2 || null, single: !uc.cuenta2 };
 }
+
+const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
 
 function shortLabel(v, max = 18) {
   if (!v) return '';
@@ -697,14 +703,14 @@ export default function Home() {
 
   const anioActual = new Date().getFullYear();
   const mesFiltroStr = `${anioActual}-${String(mesFiltro + 1).padStart(2, '0')}`;
-  const sameCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
-
   const filtered = transactions
     .filter(t => t.fecha && t.fecha.startsWith(mesFiltroStr))
-    .filter(t => filter === 'todos' || sameCuenta(t.cuenta, filter));
+    .filter(t => filter === 'todos' || mismaCuenta(t.cuenta, filter));
 
+  // Con una sola cuenta, todo movimiento le pertenece: contarlos por nombre
+  // dejaba fuera los guardados antes de renombrar la cuenta.
   const sumFor = (c) =>
-    transactions.filter((t) => sameCuenta(t.cuenta, c))
+    transactions.filter((t) => cfg.single || mismaCuenta(t.cuenta, c))
       .reduce((acc, t) => acc + (t.tipo === 'ingreso' ? t.monto : -t.monto), 0);
 
   const total1 = sumFor(cfg.c1);

@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
+const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+const etiquetaCuenta = (valor, cfg) =>
+  cfg.single || mismaCuenta(valor, cfg.c1) ? cfg.l1 : cfg.l2;
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -68,10 +71,10 @@ function Resumen({ userId, cfg }) {
         const del_mes = (txs || []).filter(t => t.fecha && t.fecha.startsWith(key));
         const ing = del_mes.filter(t => t.tipo === 'ingreso').reduce((s,t) => s + t.monto, 0);
         const gas = del_mes.filter(t => t.tipo === 'gasto').reduce((s,t) => s + t.monto, 0);
-        const ing1 = del_mes.filter(t => t.tipo === 'ingreso' && t.cuenta === cfg.c1).reduce((s,t) => s + t.monto, 0);
-        const gas1 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c1).reduce((s,t) => s + t.monto, 0);
-        const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && t.cuenta === cfg.c2).reduce((s,t) => s + t.monto, 0);
-        const gas2 = del_mes.filter(t => t.tipo === 'gasto' && t.cuenta === cfg.c2).reduce((s,t) => s + t.monto, 0);
+        const ing1 = del_mes.filter(t => t.tipo === 'ingreso' && (cfg.single || mismaCuenta(t.cuenta, cfg.c1))).reduce((s,t) => s + t.monto, 0);
+        const gas1 = del_mes.filter(t => t.tipo === 'gasto' && (cfg.single || mismaCuenta(t.cuenta, cfg.c1))).reduce((s,t) => s + t.monto, 0);
+        const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s,t) => s + t.monto, 0);
+        const gas2 = del_mes.filter(t => t.tipo === 'gasto' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s,t) => s + t.monto, 0);
         return { mes: i, ing, gas, bal: ing - gas, bal1: ing1 - gas1, bal2: ing2 - gas2, tiene: del_mes.length > 0 };
       });
       setData(meses);
@@ -107,10 +110,11 @@ function Resumen({ userId, cfg }) {
   const mesActual = new Date().getMonth();
   function calcProjC(c, balActual) {
     if (!projection) return null;
-    const inc = projection.cobros.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
-    const exp = projection.deudas.filter(r => r.cuenta === c).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
-      + projection.cuotas.filter(r => r.installment_purchases?.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0)
-      + projection.gastos.filter(r => r.cuenta === c).reduce((s, r) => s + (r.monto || 0), 0);
+    const deCuenta = (valor) => cfg.single || mismaCuenta(valor, c);
+    const inc = projection.cobros.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + (r.monto || 0), 0);
+    const exp = projection.deudas.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + projection.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta)).reduce((s, r) => s + (r.monto || 0), 0)
+      + projection.gastos.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + (r.monto || 0), 0);
     return balActual + inc - exp;
   }
   const proj1 = data[mesActual] ? calcProjC(cfg.c1, data[mesActual].bal1) : null;
@@ -332,7 +336,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   </div>
                   <div className="meta">
                     <div className="cat">{g.descripcion}</div>
-                    <div className="sub">Día {g.dia_vencimiento} · {g.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {g.frecuencia && g.frecuencia !== 'mensual' ? g.frecuencia + ' · ' : ''}{pagadoEsteMes ? (proximoPago ? `✓ Próximo: ${fmtFecha(proximoPago.toISOString().slice(0,10))}` : '✓ Pagado este mes') : g.activo ? 'Pendiente' : 'Pausado'}</div>
+                    <div className="sub">Día {g.dia_vencimiento} · {etiquetaCuenta(g.cuenta, cfg)} · {g.frecuencia && g.frecuencia !== 'mensual' ? g.frecuencia + ' · ' : ''}{pagadoEsteMes ? (proximoPago ? `✓ Próximo: ${fmtFecha(proximoPago.toISOString().slice(0,10))}` : '✓ Pagado este mes') : g.activo ? 'Pendiente' : 'Pausado'}</div>
                   </div>
                   <div className="amt" style={{ flexShrink: 0, color: pagadoEsteMes ? '#34d399' : '#f87171' }}>{fmt(g.monto)}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
@@ -906,7 +910,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   <div className="mas-item-icon" style={{ background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v13M7 10l5 5 5-5"/><path d="M20 20H4"/></svg></div>
                   <div className="meta">
                     <div className="cat">{i.cliente}</div>
-                    <div className="sub">{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2}{i.frecuencia && i.frecuencia !== 'una_vez' ? ` · ${i.frecuencia}` : ''} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
+                    <div className="sub">{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{etiquetaCuenta(i.cuenta, cfg)}{i.frecuencia && i.frecuencia !== 'una_vez' ? ` · ${i.frecuencia}` : ''} · {i.estado === 'cobrado' ? '✓ Cobrado' : 'Pendiente'}</div>
                   </div>
                   <div className="amt pos" style={{ flexShrink: 0 }}>{fmt(i.monto)}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
@@ -1098,7 +1102,7 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   <div className="mas-item-icon" style={{ background: 'rgba(251,146,60,0.15)', border: '1px solid rgba(251,146,60,0.3)', flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fb923c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22V9M7 14l5-5 5 5"/><path d="M20 4H4"/></svg></div>
                   <div className="meta">
                     <div className="cat">{i.acreedor}</div>
-                    <div className="sub">{i.cuenta === cfg.c1 ? cfg.l1 : cfg.l2} · {i.estado === 'pagado' ? '✓ Pagado' : 'Pendiente'}</div>
+                    <div className="sub">{etiquetaCuenta(i.cuenta, cfg)} · {i.estado === 'pagado' ? '✓ Pagado' : 'Pendiente'}</div>
                   </div>
                   <div className="amt neg" style={{ flexShrink: 0 }}>{fmt(i.monto_total - i.monto_pagado)}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
