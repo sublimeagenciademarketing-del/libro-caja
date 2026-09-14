@@ -1551,10 +1551,17 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     }));
     const suffix = c.cuotas > 1 ? ` (${c.numero_cuota}/${c.cuotas})` : '';
     const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${c.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
-    const { error } = await supabase.from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id);
-    if (error) {
+    // .select() devuelve las filas realmente modificadas. Sin esto la base
+    // responde sin error aunque no haya tocado ninguna, y se borraba el
+    // movimiento del panel principal mientras la tarjeta seguía pagada.
+    const { data: revertidos, error } = await supabase
+      .from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id).select('id');
+    if (error || !revertidos?.length) {
       await loadExpenses(cardId);
-      alert(`No se pudo revertir el pago: ${error.message}`);
+      setTimeout(() => alert(
+        error ? `No se pudo revertir el pago: ${error.message}`
+              : 'No se pudo revertir el pago. El movimiento del panel principal no se tocó.'
+      ), 0);
       return;
     }
     if (txs?.length) await supabase.from('transactions').delete().eq('id', txs[0].id);
