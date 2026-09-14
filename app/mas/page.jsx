@@ -6,6 +6,9 @@ import { supabase } from '../../lib/supabaseClient';
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+// card_expenses.estado no admite 'pendiente': sus valores son
+// pendiente_facturacion / facturado / pagado. Este es el valor por defecto.
+const TARJETA_PENDIENTE = 'pendiente_facturacion';
 const etiquetaCuenta = (valor, cfg) =>
   cfg.single || mismaCuenta(valor, cfg.c1) ? cfg.l1 : cfg.l2;
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
@@ -1547,7 +1550,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     // Optimistic update — cambia UI inmediatamente
     setExpenses(prev => ({
       ...prev,
-      [cardId]: (prev[cardId] || []).map(e => e.id === c.id ? { ...e, estado: 'pendiente' } : e),
+      [cardId]: (prev[cardId] || []).map(e => e.id === c.id ? { ...e, estado: TARJETA_PENDIENTE } : e),
     }));
     const suffix = c.cuotas > 1 ? ` (${c.numero_cuota}/${c.cuotas})` : '';
     const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Tarjeta: ${c.descripcion}${suffix}`).order('fecha', { ascending: false }).limit(1);
@@ -1555,7 +1558,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     // responde sin error aunque no haya tocado ninguna, y se borraba el
     // movimiento del panel principal mientras la tarjeta seguía pagada.
     const { data: revertidos, error } = await supabase
-      .from('card_expenses').update({ estado: 'pendiente' }).eq('id', c.id).select('id');
+      .from('card_expenses').update({ estado: TARJETA_PENDIENTE }).eq('id', c.id).select('id');
     if (error || !revertidos?.length) {
       await loadExpenses(cardId);
       setTimeout(() => alert(

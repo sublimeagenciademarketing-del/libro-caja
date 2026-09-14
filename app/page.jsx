@@ -516,7 +516,7 @@ export default function Home() {
       supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
       supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
       supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
-      supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).eq('estado', 'pendiente').gte('fecha', mesStart).lte('fecha', mesEnd),
+      supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado').gte('fecha', mesStart).lte('fecha', mesEnd),
     ]);
     const mesStr = `${y}-${m}`;
     const filterGasto = (g) => {
@@ -549,7 +549,7 @@ export default function Home() {
       supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, fecha_limite').eq('user_id', userId).gte('fecha_limite', nowStr).lte('fecha_limite', futureEndStr),
       supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', nowStr).lte('fecha_vencimiento', futureEndStr).eq('installment_purchases.user_id', userId),
       supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
-      supabase.from('card_expenses').select('monto, cuenta, estado, fecha').eq('user_id', userId).eq('estado', 'pendiente').gte('fecha', nowStr).lte('fecha', futureEndStr),
+      supabase.from('card_expenses').select('monto, cuenta, estado, fecha').eq('user_id', userId).neq('estado', 'pagado').gte('fecha', nowStr).lte('fecha', futureEndStr),
     ]);
     const cobros = (r1.data || []).filter(r => r.estado !== 'cobrado');
     const deudas = (r2.data || []).filter(r => r.estado !== 'pagado');
@@ -582,7 +582,7 @@ export default function Home() {
       supabase.from('debts').select('acreedor, monto_total, monto_pagado, fecha_limite, cuenta, estado').eq('user_id', userId),
       supabase.from('installments').select('monto, fecha_vencimiento, estado, installment_purchases!inner(descripcion, user_id, cuenta)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
       supabase.from('recurring_expenses').select('descripcion, monto, dia_vencimiento, cuenta, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
-      supabase.from('card_expenses').select('descripcion, monto, fecha, cuenta, estado').eq('user_id', userId).eq('estado', 'pendiente'),
+      supabase.from('card_expenses').select('descripcion, monto, fecha, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado'),
     ]);
 
     const overdue = [], upcoming = [];
