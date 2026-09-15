@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { DIAS_PRUEBA } from '../../lib/config';
 
 const WA_NUMBER = '595986313704';
 const WA_TEXT = encodeURIComponent('Hola, quiero contratar MiCaja. ¿Me podés dar más información?');
@@ -146,7 +147,7 @@ const FEATURES = [
 
 const PLAN_ITEMS = [
   'Acceso completo a todas las funciones',
-  '7 días de prueba gratuita',
+  `${DIAS_PRUEBA} días de prueba gratuita`,
   'Actualizaciones incluidas',
   'Soporte directo por WhatsApp',
 ];
@@ -239,7 +240,7 @@ export default function LandingPage() {
                 <span style={{ position: 'relative', zIndex: 1 }}>Probar gratis →</span>
                 <span data-anim aria-hidden="true" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: '45%', background: 'linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent)', animation: reduced ? 'none' : 'mc-shine 3.4s ease-in-out infinite' }} />
               </a>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>7 días gratis · Sin tarjeta de crédito</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>{DIAS_PRUEBA} días gratis · Sin tarjeta de crédito</div>
               <a href="/login" className="mc-ghost" style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', textDecoration: 'none', marginTop: 4, padding: '6px 14px', borderRadius: 10, border: '1px solid transparent' }}>Ya tengo cuenta → Ingresar</a>
               <a href={WA_HREF} target="_blank" rel="noreferrer" className="mc-wa"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 18px', borderRadius: 10, background: 'rgba(37,211,102,0.1)', border: '1px solid rgba(37,211,102,0.25)', color: '#25d366', fontWeight: 600, fontSize: 13, textDecoration: 'none', marginTop: 4 }}>
@@ -397,7 +398,7 @@ export default function LandingPage() {
                 Contactar por WhatsApp
               </a>
               <a href="/login?registro=1" className="mc-ghost" style={{ display: 'block', padding: '11px 20px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
-                Empezar los 7 días gratis →
+                Empezar los {DIAS_PRUEBA} días gratis →
               </a>
             </div>
           </Reveal>

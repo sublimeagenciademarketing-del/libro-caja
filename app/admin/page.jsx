@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
+import { DIAS_PRUEBA } from '../../lib/config';
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const fmt = (s) => s ? new Date(s).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
@@ -61,7 +62,7 @@ export default function AdminPage() {
     const rows = (configs || []).map(uc => {
       const lic = licMap[uc.email];
       const regDate = new Date(uc.fecha_registro || today); regDate.setHours(0,0,0,0);
-      const diasDemo = 7 - Math.ceil((today - regDate) / 86400000);
+      const diasDemo = DIAS_PRUEBA - Math.ceil((today - regDate) / 86400000);
 
       let status, diasRestantes = null, fechaVenc = null;
       if (uc.email === ADMIN_EMAIL) {

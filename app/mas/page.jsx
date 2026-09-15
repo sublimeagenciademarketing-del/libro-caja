@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
+import { DIAS_PRUEBA } from '../../lib/config';
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
@@ -2121,7 +2122,7 @@ export default function Mas() {
       const demoExpired = !lic?.activo && (() => {
         const today = new Date(); today.setHours(0,0,0,0);
         const regDate = new Date(uc?.fecha_registro || new Date()); regDate.setHours(0,0,0,0);
-        return 7 - Math.ceil((today - regDate) / 86400000) <= 0;
+        return DIAS_PRUEBA - Math.ceil((today - regDate) / 86400000) <= 0;
       })();
       setSoloLectura(adminSetSoloLectura || demoExpired);
       setSession(data.session);

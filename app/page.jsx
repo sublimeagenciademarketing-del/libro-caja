@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
+import { DIAS_PRUEBA } from '../lib/config';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -442,9 +443,9 @@ export default function Home() {
         else if (dias <= 14) { setLicStatus('expiring'); setDiasRestantes(dias); }
         else { setLicStatus('active'); }
       } else {
-        // Demo: 7 days from fecha_registro
+        // Demo: DIAS_PRUEBA desde fecha_registro
         const regDate = new Date(uc.fecha_registro || todayStr); regDate.setHours(0,0,0,0);
-        const diasDemo = 7 - Math.ceil((today - regDate) / 86400000);
+        const diasDemo = DIAS_PRUEBA - Math.ceil((today - regDate) / 86400000);
         if (diasDemo <= 0) { setLicStatus('solo_lectura'); setDiasRestantes(0); }
         else { setLicStatus('demo'); setDiasRestantes(diasDemo); }
       }
@@ -504,11 +505,11 @@ export default function Home() {
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
-      if (!data.session) router.push('/login');
+      if (!data.session) router.replace('/landing');
       else await initUser(data.session);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, s) => {
-      if (!s) router.push('/login');
+    const { data: listener } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'SIGNED_OUT') router.push('/login');
     });
     return () => listener.subscription.unsubscribe();
   }, [router]);
