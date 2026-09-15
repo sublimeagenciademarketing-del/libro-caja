@@ -303,8 +303,8 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
                         </div>
                         <div style={{ height: 1, background: 'rgba(255,255,255,0.08)' }} />
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
-                          <span style={{ fontSize: 12, color: p.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800, textAlign: 'right' }}>{p.result >= 0 ? '+' : '−'}{fmt(Math.abs(p.result))}</span>
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado esperado</span>
+                          <span style={{ fontSize: 12, color: p.result >= 0 ? '#34d399' : '#f87171', fontWeight: 800, textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>{p.result >= 0 ? '+' : '−'}{fmt(Math.abs(p.result))}</span>
                         </div>
                       </div>
                     ))}
@@ -353,11 +353,23 @@ export default function Home() {
   const [licStatus, setLicStatus] = useState('loading'); // loading | demo | active | expiring | blocked
   const [diasRestantes, setDiasRestantes] = useState(null);
   const [showInstall, setShowInstall] = useState(false);
+  const [notifPerm, setNotifPerm] = useState('unsupported');
   const installPromptRef = useRef(null);
   const isStandalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches;
   const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
   const isIOS = typeof window !== 'undefined' && /iPhone|iPad/i.test(navigator.userAgent);
   const showInstallBtn = isMobile && !isStandalone;
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission);
+  }, []);
+
+  // iPhone solo muestra el número en el ícono si el app tiene permiso de
+  // notificaciones; pedirlo requiere un toque del usuario.
+  async function pedirPermisoIcono() {
+    if (typeof Notification === 'undefined') return;
+    setNotifPerm(await Notification.requestPermission());
+  }
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
@@ -839,6 +851,13 @@ export default function Home() {
               <span style={{ fontSize: 15, fontWeight: 700, color: '#fff' }}>🔔 Notificaciones</span>
               <button onClick={() => setShowNotif(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 20, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>✕</button>
             </div>
+
+            {isIOS && isStandalone && notifPerm === 'default' && (
+              <button onClick={pedirPermisoIcono} style={{ width: '100%', marginBottom: 12, padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', lineHeight: 1.4 }}>
+                Mostrar el número de avisos en el ícono del app →
+                <div style={{ fontSize: 11, fontWeight: 400, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>iPhone te pide permiso una sola vez.</div>
+              </button>
+            )}
 
             {notifs.overdue.length === 0 && notifs.upcoming.length === 0 && (
               <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.35)', fontSize: 13, padding: '20px 0' }}>Sin notificaciones</div>
