@@ -2114,7 +2114,7 @@ export default function Mas() {
       const email = data.session.user.email;
       const [{ data: uc }, { data: lic }] = await Promise.all([
         supabase.from('user_config').select('*').eq('user_id', userId).single(),
-        supabase.from('licencias').select('activo, solo_lectura').eq('email', email).single(),
+        supabase.from('licencias').select('activo, solo_lectura, fecha_vencimiento').eq('email', email).single(),
       ]);
       setIsAdmin(email === ADMIN_EMAIL);
       setCfg(uc ? buildCfgFromDB(uc) : getUserConfig(email));
@@ -2124,7 +2124,12 @@ export default function Mas() {
         const regDate = new Date(uc?.fecha_registro || new Date()); regDate.setHours(0,0,0,0);
         return DIAS_PRUEBA - Math.ceil((today - regDate) / 86400000) <= 0;
       })();
-      setSoloLectura(adminSetSoloLectura || demoExpired);
+      const licVencida = !!(lic?.activo && lic?.fecha_vencimiento && (() => {
+        const today = new Date(); today.setHours(0,0,0,0);
+        const vence = new Date(lic.fecha_vencimiento); vence.setHours(0,0,0,0);
+        return vence < today;
+      })());
+      setSoloLectura(adminSetSoloLectura || demoExpired || licVencida);
       setSession(data.session);
     });
   }, [router]);

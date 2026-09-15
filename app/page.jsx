@@ -352,8 +352,9 @@ export default function Home() {
   const [futureRawData, setFutureRawData] = useState(null);
   const [notifs, setNotifs] = useState(null);
   const [showNotif, setShowNotif] = useState(false);
-  const [licStatus, setLicStatus] = useState('loading'); // loading | demo | active | expiring | blocked
+  const [licStatus, setLicStatus] = useState('loading'); // loading | demo | active | expiring | solo_lectura
   const [diasRestantes, setDiasRestantes] = useState(null);
+  const [motivoLectura, setMotivoLectura] = useState(null); // prueba | licencia | admin
   const [showInstall, setShowInstall] = useState(false);
   const [notifPerm, setNotifPerm] = useState('unsupported');
   // Avisos de la campanita que el usuario ya abrió y vio (por dispositivo).
@@ -435,18 +436,18 @@ export default function Home() {
       const today = new Date(); today.setHours(0,0,0,0);
       const todayStr = today.toISOString().slice(0,10);
       if (lic && lic.activo && lic.solo_lectura) {
-        setLicStatus('solo_lectura');
+        setLicStatus('solo_lectura'); setMotivoLectura('admin');
       } else if (lic && lic.activo) {
         const vence = new Date(lic.fecha_vencimiento); vence.setHours(0,0,0,0);
         const dias = Math.ceil((vence - today) / 86400000);
-        if (dias < 0) { setLicStatus('blocked'); setDiasRestantes(0); }
+        if (dias < 0) { setLicStatus('solo_lectura'); setMotivoLectura('licencia'); setDiasRestantes(0); }
         else if (dias <= 14) { setLicStatus('expiring'); setDiasRestantes(dias); }
         else { setLicStatus('active'); }
       } else {
         // Demo: DIAS_PRUEBA desde fecha_registro
         const regDate = new Date(uc.fecha_registro || todayStr); regDate.setHours(0,0,0,0);
         const diasDemo = DIAS_PRUEBA - Math.ceil((today - regDate) / 86400000);
-        if (diasDemo <= 0) { setLicStatus('solo_lectura'); setDiasRestantes(0); }
+        if (diasDemo <= 0) { setLicStatus('solo_lectura'); setMotivoLectura('prueba'); setDiasRestantes(0); }
         else { setLicStatus('demo'); setDiasRestantes(diasDemo); }
       }
     }
@@ -693,24 +694,6 @@ export default function Home() {
     return `https://wa.me/${WA_NUMBER}?text=${base}`;
   };
 
-  if (licStatus === 'blocked') {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, background: '#0f172a', textAlign: 'center' }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>🔒</div>
-        <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0 }}>Acceso bloqueado</h2>
-        <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 14, marginTop: 8, marginBottom: 28, maxWidth: 280 }}>
-          Tu período de prueba o licencia ha vencido. Contactanos para renovar y seguir usando MiCaja.
-        </p>
-        <a href={waMsg('renovar')} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 28px', borderRadius: 14, background: '#25d366', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', fontFamily: 'inherit' }}>
-          📲 Contactar por WhatsApp
-        </a>
-        <button onClick={handleLogout} style={{ marginTop: 20, background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-          Cerrar sesión
-        </button>
-      </div>
-    );
-  }
-
   async function handleAdd(e) {
     e.preventDefault();
     const montoNum = parseFloat(monto);
@@ -938,7 +921,14 @@ export default function Home() {
 
       {licStatus === 'solo_lectura' && (
         <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 12, padding: '10px 16px', marginBottom: 12, fontSize: 13, color: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>
-          Tu cuenta está en modo <b style={{ color: '#fbbf24' }}>solo lectura</b>. Contactanos para reactivar.
+          {motivoLectura === 'licencia'
+            ? <>Tu licencia <b style={{ color: '#fbbf24' }}>venció</b>. Tus datos están guardados; renová para seguir cargando.</>
+            : motivoLectura === 'prueba'
+            ? <>Terminaron tus {DIAS_PRUEBA} días de prueba. Tus datos están guardados; activá para seguir cargando.</>
+            : <>Tu cuenta está en modo <b style={{ color: '#fbbf24' }}>solo lectura</b>. Contactanos para reactivar.</>}
+          <a href={waMsg(motivoLectura === 'licencia' ? 'renovar' : 'activar')} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 6, color: '#fbbf24', fontWeight: 700, textDecoration: 'none' }}>
+            {motivoLectura === 'licencia' ? 'Renovar por WhatsApp →' : 'Activar por WhatsApp →'}
+          </a>
         </div>
       )}
       <form className="entry" onSubmit={handleAdd} style={{ display: licStatus === 'solo_lectura' ? 'none' : undefined }}>
