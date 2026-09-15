@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { DIAS_PRUEBA } from '../../lib/config';
+import { sumarMeses } from '../../lib/fechas';
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
@@ -482,8 +483,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       } else if (frec === 'quincenal') {
         d.setDate(d.getDate() + i * 15);
       } else {
-        d.setMonth(d.getMonth() + i);
-        d.setDate(diaVenc);
+        d.setTime(sumarMeses(firstDate, i, diaVenc).getTime());
       }
       cuotas.push({
         purchase_id: purchase.id,
@@ -553,7 +553,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
           const i = firstPendiente - 1 + idx;
           if (frec === 'semanal') d.setDate(d.getDate() + i * 7);
           else if (frec === 'quincenal') d.setDate(d.getDate() + i * 15);
-          else { d.setMonth(d.getMonth() + i); d.setDate(diaVenc); }
+          else d.setTime(sumarMeses(firstDate, i, diaVenc).getTime());
           return supabase.from('installments').update({ fecha_vencimiento: d.toISOString().slice(0, 10) }).eq('id', c.id);
         });
         await Promise.all(updates);
@@ -799,7 +799,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
         const base = new Date(item.fecha_esperada + 'T12:00:00');
         if (frec === 'semanal') base.setDate(base.getDate() + 7);
         else if (frec === 'quincenal') base.setDate(base.getDate() + 15);
-        else base.setMonth(base.getMonth() + 1);
+        else base.setTime(sumarMeses(base, 1).getTime());
         await supabase.from('receivables').insert({
           user_id: userId, cliente: item.cliente, monto: item.monto,
           fecha_esperada: base.toISOString().slice(0, 10),
@@ -1494,7 +1494,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     const rows = [];
     for (let i = 0; i < numCuotas; i++) {
       const d = new Date(baseDate);
-      d.setMonth(d.getMonth() + i + 1);
+      d.setTime(sumarMeses(baseDate, i + 1).getTime());
       rows.push({
         user_id: userId, card_id: cardId,
         descripcion: expForm.descripcion.trim(),
@@ -2103,6 +2103,11 @@ export default function Mas() {
   const router = useRouter();
   const [session, setSession] = useState(undefined);
   const [activeTab, setActiveTab] = useState('resumen');
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab && TABS.some(t => t.id === tab)) setActiveTab(tab);
+  }, []);
   const [isAdmin, setIsAdmin] = useState(false);
   const [cfg, setCfg] = useState(null);
   const [soloLectura, setSoloLectura] = useState(false);

@@ -333,6 +333,33 @@ function buildCfgFromDB(uc) {
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
 const claveNotif = (n) => `${n.tipo}|${n.label}|${n.fecha}`;
 
+function PrimerosPasos({ pasos }) {
+  const hechos = pasos.filter(p => p.hecho).length;
+  return (
+    <div style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.30)', borderRadius: 16, padding: '14px 16px', marginBottom: 18 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>Primeros pasos</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#a5b4fc' }}>{hechos}/{pasos.length}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {pasos.map((p) => (
+          <button key={p.titulo} type="button" onClick={p.hecho ? undefined : p.onClick} disabled={p.hecho}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)', background: p.hecho ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.06)', color: '#fff', cursor: p.hecho ? 'default' : 'pointer', fontFamily: 'inherit', opacity: p.hecho ? 0.55 : 1 }}>
+            <span style={{ width: 22, height: 22, borderRadius: 999, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: p.hecho ? '#34d399' : 'transparent', border: p.hecho ? 'none' : '2px solid rgba(255,255,255,0.3)' }}>
+              {p.hecho && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0f172a" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+            </span>
+            <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 700, textDecoration: p.hecho ? 'line-through' : 'none' }}>{p.titulo}</span>
+              <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 1 }}>{p.detalle}</span>
+            </span>
+            {!p.hecho && <span style={{ color: '#a5b4fc', fontSize: 16, flexShrink: 0 }}>›</span>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function shortLabel(v, max = 18) {
   if (!v) return '';
   const s = String(v).includes('@') ? String(v).split('@')[0] : String(v);
@@ -355,6 +382,8 @@ export default function Home() {
   const [licStatus, setLicStatus] = useState('loading'); // loading | demo | active | expiring | solo_lectura
   const [diasRestantes, setDiasRestantes] = useState(null);
   const [motivoLectura, setMotivoLectura] = useState(null); // prueba | licencia | admin
+  const [primerosPasos, setPrimerosPasos] = useState(null);
+  const formRef = useRef(null);
   const [showInstall, setShowInstall] = useState(false);
   const [notifPerm, setNotifPerm] = useState('unsupported');
   // Avisos de la campanita que el usuario ya abrió y vio (por dispositivo).
@@ -662,6 +691,12 @@ export default function Home() {
     setNotifs({ overdue, upcoming });
   }, []);
 
+  const cargarPrimerosPasos = useCallback(async (userId) => {
+    const contar = (tabla) => supabase.from(tabla).select('id', { count: 'exact', head: true }).eq('user_id', userId);
+    const [fijos, cobros, tarjetas, deudas] = await Promise.all([contar('recurring_expenses'), contar('receivables'), contar('credit_cards'), contar('debts')]);
+    setPrimerosPasos({ fijos: fijos.count || 0, extras: (cobros.count || 0) + (tarjetas.count || 0) + (deudas.count || 0) });
+  }, []);
+
   const loadTransactions = useCallback(async (userId) => {
     const { data, error } = await supabase
       .from('transactions')
@@ -678,8 +713,9 @@ export default function Home() {
       loadProjection(session.user.id);
       loadFutureProjections(session.user.id);
       loadNotifications(session.user.id);
+      cargarPrimerosPasos(session.user.id);
     }
-  }, [session, loadTransactions, loadProjection, loadFutureProjections, loadNotifications]);
+  }, [session, loadTransactions, loadProjection, loadFutureProjections, loadNotifications, cargarPrimerosPasos]);
 
   useEffect(() => {
     setFecha(new Date().toISOString().slice(0, 10));
@@ -799,6 +835,16 @@ export default function Home() {
           <button className="logout-btn" onClick={handleLogout}>Salir</button>
         </div>
       </div>
+
+      {/* Guía de primer día: solo mientras la cuenta está casi vacía y falta algún paso */}
+      {primerosPasos && licStatus !== 'solo_lectura' && transactions.length < 5
+        && !(transactions.length > 0 && primerosPasos.fijos > 0 && primerosPasos.extras > 0) && (
+        <PrimerosPasos pasos={[
+          { hecho: transactions.length > 0, titulo: 'Anotá tu primer movimiento', detalle: 'Un ingreso o un gasto de hoy', onClick: () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
+          { hecho: primerosPasos.fijos > 0, titulo: 'Cargá tus gastos fijos', detalle: 'Alquiler, internet, celular…', onClick: () => router.push('/mas?tab=gastos') },
+          { hecho: primerosPasos.extras > 0, titulo: 'Agregá lo que te deben, tu tarjeta o una deuda', detalle: 'Así la proyección muestra el mes completo', onClick: () => router.push('/mas?tab=cobros') },
+        ]} />
+      )}
 
       {showInstall && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)' }} onClick={() => setShowInstall(false)}>
@@ -931,7 +977,7 @@ export default function Home() {
           </a>
         </div>
       )}
-      <form className="entry" onSubmit={handleAdd} style={{ display: licStatus === 'solo_lectura' ? 'none' : undefined }}>
+      <form className="entry" ref={formRef} onSubmit={handleAdd} style={{ display: licStatus === 'solo_lectura' ? 'none' : undefined }}>
         <div className="entry-title">Nuevo movimiento</div>
         <div className="row">
           <div className="field" style={{ flex: 1.4 }}>
