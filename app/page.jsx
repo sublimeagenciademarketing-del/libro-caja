@@ -185,7 +185,7 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
               {(rawData?.months || [{ i: 0, mesStr, nombre: mesNombre, añoDistinto: false }]).map((mo, idx) => {
                 const p = idx === 0 && proj1 ? proj1 : calcFuturoCuenta(cfg.c1, mo);
                 return (
-                  <div key={mo.mesStr || idx} style={{ minWidth: '100%', flexShrink: 0, scrollSnapAlign: 'start' }}>
+                  <div key={mo.mesStr || idx} style={{ width: '100%', flexShrink: 0, scrollSnapAlign: 'start' }}>
                     <div style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         Proyección {mo.nombre}{mo.añoDistinto ? ` ${mo.año}` : ''}
@@ -284,7 +284,7 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
               const p1 = idx === 0 && proj1 ? proj1 : calcFuturoCuenta(cfg.c1, mo);
               const p2 = cfg.single ? null : (idx === 0 && proj2 ? proj2 : calcFuturoCuenta(cfg.c2, mo));
               return (
-                <div key={mo.mesStr || idx} style={{ minWidth: '100%', flexShrink: 0, scrollSnapAlign: 'start' }}>
+                <div key={mo.mesStr || idx} style={{ width: '100%', flexShrink: 0, scrollSnapAlign: 'start' }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                     Proyección {mo.nombre}{mo.añoDistinto ? ` ${mo.año}` : ''}
                     {idx === 0 && projShowHint && rawData && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontWeight: 400, animation: 'pulse 1.5s infinite' }}>deslizá →</span>}
@@ -330,6 +330,7 @@ function buildCfgFromDB(uc) {
 }
 
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+const claveNotif = (n) => `${n.tipo}|${n.label}|${n.fecha}`;
 
 function shortLabel(v, max = 18) {
   if (!v) return '';
@@ -354,6 +355,10 @@ export default function Home() {
   const [diasRestantes, setDiasRestantes] = useState(null);
   const [showInstall, setShowInstall] = useState(false);
   const [notifPerm, setNotifPerm] = useState('unsupported');
+  // Avisos de la campanita que el usuario ya abrió y vio (por dispositivo).
+  // La campanita muestra siempre todo lo pendiente; el ícono del teléfono
+  // solo lo que todavía no se vio.
+  const [notifVistas, setNotifVistas] = useState(() => new Set());
   const installPromptRef = useRef(null);
   const isStandalone = typeof window !== 'undefined' && window.matchMedia('(display-mode: standalone)').matches;
   const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -370,6 +375,20 @@ export default function Home() {
     if (typeof Notification === 'undefined') return;
     setNotifPerm(await Notification.requestPermission());
   }
+
+  useEffect(() => {
+    try { setNotifVistas(new Set(JSON.parse(localStorage.getItem('notif_vistas') || '[]'))); } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!notifs) return;
+    const actuales = [...notifs.overdue, ...notifs.upcoming].map(claveNotif);
+    const next = new Set([...notifVistas].filter(k => actuales.includes(k)));
+    if (showNotif) actuales.forEach(k => next.add(k));
+    if (next.size === notifVistas.size && [...next].every(k => notifVistas.has(k))) return;
+    setNotifVistas(next);
+    try { localStorage.setItem('notif_vistas', JSON.stringify([...next])); } catch {}
+  }, [notifs, showNotif, notifVistas]);
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
@@ -464,8 +483,8 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof navigator === 'undefined' || typeof document === 'undefined') return;
-    const notifCount = notifs ? (notifs.overdue.length + notifs.upcoming.length) : 0;
-    const count = notifCount + adminBadge;
+    const noVistas = notifs ? [...notifs.overdue, ...notifs.upcoming].filter(n => !notifVistas.has(claveNotif(n))).length : 0;
+    const count = noVistas + adminBadge;
     const setBadge = () => {
       if (!('setAppBadge' in navigator)) return;
       if (count > 0) navigator.setAppBadge(count).catch(() => {});
@@ -481,7 +500,7 @@ export default function Home() {
     clearBadge();
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [notifs, adminBadge]);
+  }, [notifs, adminBadge, notifVistas]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
