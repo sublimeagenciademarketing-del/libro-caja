@@ -413,7 +413,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
             const alDia = est.etiqueta === 'al_dia';
             const frec = g.frecuencia || 'mensual';
             return (
-              <li key={g.id} className={g.activo ? '' : 'inactive'}
+              <li key={g.id} className={!g.activo ? 'inactive' : alDia ? 'al-dia' : ''}
                 style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
                 onClick={() => setExpandedId(isExp ? null : g.id)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -450,13 +450,13 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                         </div>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                      <div className="mas-acciones">
                         {g.activo && est.proximo && (
-                          <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                          <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
                             onClick={() => handlePagar(g)}>✓ Pagar{est.atrasadas > 1 ? ' 1 de ' + est.atrasadas : ''}</button>
                         )}
                         {g.pagado_fecha && (
-                          <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                          <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
                             onClick={() => handleRevertir(g)}>↩ Revertir</button>
                         )}
                         <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
@@ -1041,7 +1041,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
               ? <>{est.proximo ? `Próximo: ${fmtFecha(est.proximo)} · ` : ''}{etiquetaCuenta(i.cuenta, cfg)} · {nombreFrec(i.frecuencia).toLowerCase()} · <span style={{ color: pausado ? 'rgba(255,255,255,0.4)' : colorEstado[est.etiqueta], fontWeight: 600 }}>{pausado ? 'Pausado' : textoEstado(est)}</span></>
               : <>{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{etiquetaCuenta(i.cuenta, cfg)} · {cobradoUnaVez ? '✓ Cobrado' : 'Pendiente'}</>;
             return (
-              <li key={i.id} className={apagada ? 'inactive' : ''}
+              <li key={i.id} className={apagada ? 'inactive' : (recurrente && est.etiqueta === 'al_dia') ? 'al-dia' : ''}
                 style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
                 onClick={() => setExpandedId(isExp ? null : i.id)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1063,13 +1063,13 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                         <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>
                           {i.forma_pago}{i.cobrado_fecha ? ` · Último cobro: ${fmtFecha(i.cobrado_fecha)}` : ''}
                         </div>
-                        {!soloLectura && <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                        {!soloLectura && <div className="mas-acciones">
                           {!cobradoUnaVez && !pausado && (recurrente ? !!est.proximo : true) && (
-                            <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                            <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
                               onClick={() => handleCobrar(i)}>✓ Cobrar{recurrente && est.atrasadas > 1 ? ' 1 de ' + est.atrasadas : ''}</button>
                           )}
                           {(cobradoUnaVez || (recurrente && i.cobrado_fecha)) && (
-                            <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                            <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
                               onClick={() => handleRevertir(i)}>↩ Revertir</button>
                           )}
                           {!cobradoUnaVez && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
@@ -1245,10 +1245,10 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                         {i.fecha_limite && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', marginBottom: 8 }}>Fecha límite: {fmtFecha(i.fecha_limite)}</div>}
                         {!soloLectura && <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                           {i.estado !== 'pagado' ? (
-                            <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                            <button className="del" style={{ color: '#34d399', borderColor: 'rgba(52,211,153,0.3)', background: 'rgba(52,211,153,0.1)', width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
                               onClick={() => handlePagar(i.id)}>✓ Pagar</button>
                           ) : (
-                            <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 14px', fontSize: 12, fontWeight: 700 }}
+                            <button className="del" style={{ color: '#fb923c', borderColor: 'rgba(251,146,60,0.3)', background: 'rgba(251,146,60,0.1)', width: 'auto', padding: '0 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}
                               onClick={async () => {
                                 if (!window.confirm(`¿Revertir pago de ${i.acreedor}?`)) return;
                                 const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', `Pago deuda: ${i.acreedor}`).order('fecha', { ascending: false }).limit(1);
