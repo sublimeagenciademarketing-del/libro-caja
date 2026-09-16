@@ -403,7 +403,32 @@ export default function Home() {
   // notificaciones; pedirlo requiere un toque del usuario.
   async function pedirPermisoIcono() {
     if (typeof Notification === 'undefined') return;
-    setNotifPerm(await Notification.requestPermission());
+    const permiso = await Notification.requestPermission();
+    setNotifPerm(permiso);
+    if (permiso === 'granted' && session?.user?.id) suscribirPush(session.user.id);
+  }
+
+  // Registra este dispositivo para recibir avisos aunque el app esté cerrado.
+  // Solo si el usuario ya dio permiso; la suscripción se guarda por dispositivo.
+  async function suscribirPush(userId) {
+    try {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      const clave = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+      if (!clave) return;
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const raw = atob(clave.replace(/-/g, '+').replace(/_/g, '/').padEnd(clave.length + (4 - clave.length % 4) % 4, '='));
+        const bytes = Uint8Array.from(raw, ch => ch.charCodeAt(0));
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+      }
+      const j = sub.toJSON();
+      await supabase.from('push_subscriptions').upsert(
+        { user_id: userId, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_agent: navigator.userAgent },
+        { onConflict: 'endpoint' },
+      );
+    } catch {}
   }
 
   useEffect(() => {
@@ -524,13 +549,16 @@ export default function Home() {
     const clearBadge = () => {
       if ('clearAppBadge' in navigator) navigator.clearAppBadge().catch(() => {});
     };
-    const onVisibility = () => {
-      if (document.hidden) setBadge();
-      else clearBadge();
+    // Con el app a la vista el ícono va limpio; al salir, con el número. Si los
+    // datos se refrescan estando afuera, se reescribe el número, no se borra.
+    const sincronizar = () => { if (document.hidden) setBadge(); else clearBadge(); };
+    sincronizar();
+    document.addEventListener('visibilitychange', sincronizar);
+    window.addEventListener('pagehide', setBadge);
+    return () => {
+      document.removeEventListener('visibilitychange', sincronizar);
+      window.removeEventListener('pagehide', setBadge);
     };
-    clearBadge();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => document.removeEventListener('visibilitychange', onVisibility);
   }, [notifs, adminBadge, notifVistas]);
 
   useEffect(() => {
@@ -700,6 +728,7 @@ export default function Home() {
       loadFutureProjections(session.user.id);
       loadNotifications(session.user.id);
       cargarPrimerosPasos(session.user.id);
+      suscribirPush(session.user.id);
     }
   }, [session, loadTransactions, loadProjection, loadFutureProjections, loadNotifications, cargarPrimerosPasos]);
 

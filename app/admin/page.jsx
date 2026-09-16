@@ -34,6 +34,23 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const [filterCard, setFilterCard] = useState('total');
+  const [pushInfo, setPushInfo] = useState({ dispositivos: null, mensaje: '', enviando: false });
+
+  // Cuántos dispositivos del admin reciben avisos push
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!data.session) return;
+      const { count } = await supabase.from('push_subscriptions').select('id', { count: 'exact', head: true }).eq('user_id', data.session.user.id);
+      setPushInfo(p => ({ ...p, dispositivos: count || 0 }));
+    });
+  }, []);
+
+  async function enviarPushPrueba() {
+    setPushInfo(p => ({ ...p, enviando: true, mensaje: '' }));
+    const { data } = await supabase.auth.getSession();
+    const r = await fetch('/api/push/prueba', { method: 'POST', headers: { Authorization: `Bearer ${data.session.access_token}` } }).then(x => x.json()).catch(e => ({ error: e.message }));
+    setPushInfo(p => ({ ...p, enviando: false, mensaje: r.error ? `Error: ${r.error}` : `Enviado a ${r.enviados} de ${r.dispositivos} dispositivo(s)${r.fallidos ? ` · ${r.fallidos} falló` : ''}` }));
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -170,6 +187,20 @@ export default function AdminPage() {
         </div>
         <button onClick={() => router.push('/')} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 14px', color: 'rgba(255,255,255,0.6)', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
           ← Volver
+        </button>
+      </div>
+
+      {/* Avisos push del admin */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '10px 14px', marginBottom: 16 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Avisos en el teléfono</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>
+            {pushInfo.dispositivos === null ? '…' : pushInfo.dispositivos === 0 ? 'Ningún dispositivo suscripto todavía. Abrí el app en el iPhone con el permiso dado.' : `${pushInfo.dispositivos} dispositivo(s) suscripto(s)`}
+            {pushInfo.mensaje && <div style={{ color: '#a5b4fc', marginTop: 2 }}>{pushInfo.mensaje}</div>}
+          </div>
+        </div>
+        <button onClick={enviarPushPrueba} disabled={pushInfo.enviando || !pushInfo.dispositivos} style={{ flexShrink: 0, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: pushInfo.enviando || !pushInfo.dispositivos ? 0.5 : 1 }}>
+          {pushInfo.enviando ? 'Enviando…' : 'Probar aviso'}
         </button>
       </div>
 
