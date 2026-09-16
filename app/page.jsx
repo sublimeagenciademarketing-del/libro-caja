@@ -381,6 +381,7 @@ export default function Home() {
   const [diasRestantes, setDiasRestantes] = useState(null);
   const [motivoLectura, setMotivoLectura] = useState(null); // prueba | licencia | admin
   const [primerosPasos, setPrimerosPasos] = useState(null);
+  const [fechaRegistro, setFechaRegistro] = useState(null);
   const formRef = useRef(null);
   const [showInstall, setShowInstall] = useState(false);
   const [notifPerm, setNotifPerm] = useState('unsupported');
@@ -452,6 +453,7 @@ export default function Home() {
       }
     }
     const c = buildCfgFromDB(uc);
+    setFechaRegistro(uc.fecha_registro || null);
     setCfg(c);
     setCuenta(c.c1);
 
@@ -824,15 +826,25 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Guía de primer día: solo mientras la cuenta está casi vacía y falta algún paso */}
-      {primerosPasos && licStatus !== 'solo_lectura' && transactions.length < 5
-        && !(transactions.length > 0 && primerosPasos.fijos > 0 && primerosPasos.extras > 0) && (
+      {/* Guía de primer día: solo el primer mes, mientras falte algún paso, y nunca
+          después de haberla completado una vez (aunque luego se borren datos). */}
+      {(() => {
+        if (!primerosPasos || licStatus === 'solo_lectura' || !session?.user?.id) return null;
+        const clave = `primeros_pasos_listo_${session.user.id}`;
+        let yaCompletada = false;
+        try { yaCompletada = localStorage.getItem(clave) === '1'; } catch {}
+        const todoHecho = transactions.length > 0 && primerosPasos.fijos > 0 && primerosPasos.extras > 0;
+        if (todoHecho && !yaCompletada) { try { localStorage.setItem(clave, '1'); } catch {} }
+        const diasDesdeRegistro = fechaRegistro ? (Date.now() - new Date(fechaRegistro).getTime()) / 86400000 : 999;
+        if (yaCompletada || todoHecho || transactions.length >= 5 || diasDesdeRegistro > 30) return null;
+        return (
         <PrimerosPasos pasos={[
           { hecho: transactions.length > 0, titulo: 'Anotá tu primer movimiento', detalle: 'Un ingreso o un gasto de hoy', onClick: () => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) },
           { hecho: primerosPasos.fijos > 0, titulo: 'Cargá tus gastos fijos', detalle: 'Alquiler, internet, celular…', onClick: () => router.push('/mas?tab=gastos') },
           { hecho: primerosPasos.extras > 0, titulo: 'Agregá lo que te deben, tu tarjeta o una deuda', detalle: 'Así la proyección muestra el mes completo', onClick: () => router.push('/mas?tab=cobros') },
         ]} />
-      )}
+        );
+      })()}
 
       {showInstall && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)' }} onClick={() => setShowInstall(false)}>
