@@ -41,6 +41,7 @@ igual('gasto sin frecuencia = mensual',          proximoDe({ dia_vencimiento: 20
 igual('cobro mensual 24/09 sin cobrar',          proximoDe({ frecuencia: 'mensual', fecha_esperada: '2026-09-24' }, HOY), '2026-09-24');
 igual('cobro mensual cobrado el 24/09 → 24/10',  proximoDe({ frecuencia: 'mensual', fecha_esperada: '2026-09-24', cobrado_fecha: '2026-09-24' }, HOY), '2026-10-24');
 igual('cobro con proximo cargado manda',         proximoDe({ frecuencia: 'mensual', fecha_esperada: '2026-09-24', proximo_vencimiento: '2026-11-24' }, HOY), '2026-11-24');
+igual('cobro ancla 31, próximo recortado 28/02 → pagar → 31/03', alPagar({ frecuencia: 'mensual', fecha_esperada: '2026-12-31', proximo_vencimiento: '2027-02-28' }, '2027-02-20').proximo_vencimiento, '2027-03-31');
 igual('cobro sin fecha → null',                  proximoDe({ frecuencia: 'mensual', fecha_esperada: null }, HOY), null);
 
 console.log('\n— ocurrencias por mes —');

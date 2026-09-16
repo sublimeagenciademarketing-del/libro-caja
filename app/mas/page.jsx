@@ -925,16 +925,20 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     const cambios = {
       cliente: editForm.cliente.trim(),
       monto: parseFloat(editForm.monto),
-      fecha_esperada: editForm.fecha_esperada || null,
       forma_pago: editForm.forma_pago,
       cuenta: editForm.cuenta,
       frecuencia: frec,
     };
-    // Si cambió la fecha o pasó a repetitivo, el próximo cobro es la fecha cargada.
     if (frec !== 'una_vez') {
+      // La fecha cargada pasa a ser el ancla y el próximo cobro solo si el usuario la cambió
+      // (o si el cobro recién se vuelve repetitivo). Si no, se respeta el ancla original.
       const fechaActual = proximoDe(item, hoy);
-      if (editForm.fecha_esperada !== fechaActual || !esRecurrente(item)) cambios.proximo_vencimiento = editForm.fecha_esperada;
+      if (editForm.fecha_esperada !== fechaActual || !esRecurrente(item)) {
+        cambios.fecha_esperada = editForm.fecha_esperada;
+        cambios.proximo_vencimiento = editForm.fecha_esperada;
+      }
     } else {
+      cambios.fecha_esperada = editForm.fecha_esperada || null;
       cambios.proximo_vencimiento = null;
     }
     const { error } = await supabase.from('receivables').update(cambios).eq('id', item.id);
