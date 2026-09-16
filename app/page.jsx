@@ -726,7 +726,11 @@ export default function Home() {
   }
 
   async function handleDelete(id) {
-    if (!window.confirm('¿Eliminar este movimiento?')) return;
+    const t = transactions.find(x => x.id === id);
+    const aviso = t && isAutoTx(t)
+      ? 'Este movimiento lo generó un pago o cobro desde Más. Borrarlo acá no cambia esa tarjeta: si querés deshacer el pago, usá "Revertir" allá. ¿Borrar igual?'
+      : '¿Eliminar este movimiento?';
+    if (!window.confirm(aviso)) return;
     await supabase.from('transactions').delete().eq('id', id);
     loadTransactions(session.user.id);
   }
@@ -1037,10 +1041,7 @@ export default function Home() {
               <div className={`amt${t.tipo === 'ingreso' ? ' pos' : ' neg'}`}>
                 {t.tipo === 'ingreso' ? '+' : '−'} {fmt(t.monto)}
               </div>
-              {isAutoTx(t)
-                ? <div className="del" style={{ opacity: 0.2, cursor: 'not-allowed' }} title="Revertir desde el módulo correspondiente">✕</div>
-                : <button className="del" onClick={() => handleDelete(t.id)} title="Eliminar">✕</button>
-              }
+              <button className="del" onClick={() => handleDelete(t.id)} title={isAutoTx(t) ? 'Generado desde Más · borrar de todos modos' : 'Eliminar'} style={isAutoTx(t) ? { opacity: 0.55 } : undefined}>✕</button>
             </li>
           ))}
         </ul>

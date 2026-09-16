@@ -388,7 +388,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
           </div>
           {form.frecuencia === 'quincenal' && form.proximo_vencimiento && (
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: -6, marginBottom: 10 }}>
-              Se repite los días {(() => { const d = deISO(form.proximo_vencimiento).getDate(); const d1 = d > 15 ? d - 15 : d; return `${d1} y ${d1 + 15 > 28 ? 'último' : d1 + 15}`; })()} de cada mes.
+              Se repite los días {(() => { const d = deISO(form.proximo_vencimiento).getDate(); const d1 = d > 15 ? d - 15 : d; const d2 = d1 + 15; return `${d1} y ${d2 >= 31 ? 'último día' : d2}${d2 >= 29 && d2 < 31 ? ' (o el último si el mes es más corto)' : ''}`; })()} de cada mes.
             </div>
           )}
           <div className="row">
@@ -982,7 +982,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       </div>
       {f.frecuencia === 'quincenal' && f.fecha_esperada && (
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: -6, marginBottom: 10 }}>
-          Se repite los días {(() => { const d = deISO(f.fecha_esperada).getDate(); const d1 = d > 15 ? d - 15 : d; return `${d1} y ${d1 + 15 > 28 ? 'último' : d1 + 15}`; })()} de cada mes.
+          Se repite los días {(() => { const d = deISO(f.fecha_esperada).getDate(); const d1 = d > 15 ? d - 15 : d; const d2 = d1 + 15; return `${d1} y ${d2 >= 31 ? 'último día' : d2}${d2 >= 29 && d2 < 31 ? ' (o el último si el mes es más corto)' : ''}`; })()} de cada mes.
         </div>
       )}
       <div className="row">
