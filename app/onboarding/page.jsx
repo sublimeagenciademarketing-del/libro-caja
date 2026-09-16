@@ -31,6 +31,7 @@ export default function OnboardingPage() {
       cuenta1: cuenta1.trim(),
       cuenta2: plan === 'negocio' ? cuenta2.trim() : null,
       fecha_registro: new Date().toISOString(),
+      registrado_en: new Date().toISOString(),
     });
     // Aviso al admin de que hay un usuario nuevo (no bloquea si falla).
     fetch('/api/push/nuevo-registro', { method: 'POST', headers: { Authorization: `Bearer ${session.access_token}` } }).catch(() => {});

@@ -358,6 +358,18 @@ function PrimerosPasos({ pasos }) {
   );
 }
 
+// Registros nuevos para el admin: usuarios (no admin) registrados después de la
+// última visita al panel. registrado_en tiene fecha y hora; fecha_registro (solo
+// fecha) queda de respaldo por si alguna fila vieja no la tuviera.
+function contarRegistrosNuevos(configs, adminLastVisit) {
+  const desde = new Date(adminLastVisit || '2000-01-01T00:00:00Z').getTime();
+  return (configs || []).filter(c => {
+    if (c.email === ADMIN_EMAIL) return false;
+    const cuando = c.registrado_en || c.fecha_registro;
+    return !!cuando && new Date(cuando).getTime() > desde;
+  }).length;
+}
+
 function shortLabel(v, max = 18) {
   if (!v) return '';
   const s = String(v).includes('@') ? String(v).split('@')[0] : String(v);
@@ -510,10 +522,8 @@ export default function Home() {
     setIsAdmin(isAdminUser);
 
     if (isAdminUser) {
-      const { data: configs } = await supabase.from('user_config').select('email');
-      const totalUsers = (configs || []).filter(c => c.email !== ADMIN_EMAIL).length;
-      const lastSeen = parseInt(localStorage.getItem('admin_seen_users_count') || '0', 10);
-      setAdminBadge(Math.max(0, totalUsers - lastSeen));
+      const { data: configs } = await supabase.from('user_config').select('email, fecha_registro, registrado_en');
+      setAdminBadge(contarRegistrosNuevos(configs, uc.admin_last_visit));
     }
   }
 
@@ -583,13 +593,9 @@ export default function Home() {
       if (data.session.user.email !== ADMIN_EMAIL) return;
       const [{ data: adminUc }, { data: configs }] = await Promise.all([
         supabase.from('user_config').select('admin_last_visit').eq('user_id', userId).single(),
-        supabase.from('user_config').select('email, fecha_registro'),
+        supabase.from('user_config').select('email, fecha_registro, registrado_en'),
       ]);
-      const lastVisit = adminUc?.admin_last_visit || '2000-01-01T00:00:00Z';
-      const newCount = (configs || []).filter(c =>
-        c.email !== ADMIN_EMAIL && c.fecha_registro && c.fecha_registro > lastVisit
-      ).length;
-      setAdminBadge(newCount);
+      setAdminBadge(contarRegistrosNuevos(configs, adminUc?.admin_last_visit));
     }
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);

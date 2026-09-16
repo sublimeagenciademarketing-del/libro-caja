@@ -104,10 +104,6 @@ export default function AdminPage() {
     });
 
     setUsers(rows);
-
-    // Guardar conteo de usuarios vistos para el badge en la página principal
-    const totalNonAdmin = rows.filter(r => r.email !== ADMIN_EMAIL).length;
-    try { localStorage.setItem('admin_seen_users_count', totalNonAdmin.toString()); } catch {}
   }
 
   async function handleDeleteUser() {
