@@ -10,9 +10,10 @@ export async function POST(request) {
     if (!user) return Response.json({ error: 'No autorizado' }, { status: 401 });
 
     // Solo vale para un registro reciente del propio usuario (evita usos indebidos).
+    // fecha_registro guarda solo la fecha (sin hora), así que "reciente" es hoy o ayer.
     const { data: uc } = await admin.from('user_config').select('email, fecha_registro').eq('user_id', user.id).single();
-    const hace = uc?.fecha_registro ? Date.now() - new Date(uc.fecha_registro).getTime() : Infinity;
-    if (!uc || hace > 15 * 60 * 1000) return Response.json({ ok: true, omitido: 'registro no reciente' });
+    const ayer = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    if (!uc?.fecha_registro || String(uc.fecha_registro).slice(0, 10) < ayer) return Response.json({ ok: true, omitido: 'registro no reciente' });
     if (uc.email === ADMIN_EMAIL) return Response.json({ ok: true, omitido: 'es el admin' });
 
     const { data: adminUc } = await admin.from('user_config').select('user_id, admin_last_visit').eq('email', ADMIN_EMAIL).single();

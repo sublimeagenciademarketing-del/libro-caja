@@ -1221,7 +1221,10 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                     <div className="cat">{i.acreedor}</div>
                     <div className="sub">{etiquetaCuenta(i.cuenta, cfg)} · {i.estado === 'pagado' ? '✓ Pagado' : 'Pendiente'}</div>
                   </div>
-                  <div className="amt neg" style={{ flexShrink: 0 }}>{fmt(i.monto_total - i.monto_pagado)}</div>
+                  {/* Pagada: se sigue viendo cuánto fue, en verde; pendiente: lo que falta. */}
+                  <div className="amt neg" style={{ flexShrink: 0, ...(i.estado === 'pagado' ? { color: '#34d399' } : {}) }}>
+                    {fmt(i.estado === 'pagado' ? i.monto_total : i.monto_total - i.monto_pagado)}
+                  </div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
                 </div>
                 {isExp && (
