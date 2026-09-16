@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { DIAS_PRUEBA } from '../../lib/config';
+import { hoyISO } from '../../lib/recurrencia';
 
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const fmt = (s) => s ? new Date(s).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
@@ -125,7 +126,7 @@ export default function AdminPage() {
       email: user.email,
       activo,
       solo_lectura: soloLectura ?? false,
-      fecha_inicio: user.lic?.fecha_inicio || new Date().toISOString().slice(0, 10),
+      fecha_inicio: user.lic?.fecha_inicio || hoyISO(),
       fecha_vencimiento: fechaVenc,
     }, { onConflict: 'email' });
     setSuccessId(user.email);

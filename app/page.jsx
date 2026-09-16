@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
 import { DIAS_PRUEBA } from '../lib/config';
+import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes, ventanaAviso, sumarDias } from '../lib/recurrencia';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -77,6 +78,24 @@ function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2, size = 9
   );
 }
 
+const COLS_COBRO = 'monto, cuenta, estado, frecuencia, fecha_esperada, proximo_vencimiento, cobrado_fecha, activo';
+const COLS_GASTO = 'monto, cuenta, activo, pagado_mes, pagado_fecha, frecuencia, dia_vencimiento, proximo_vencimiento';
+
+// Convierte ítems recurrentes en una entrada por ocurrencia dentro del mes,
+// así todo lo que suma proyecciones sigue trabajando con {monto, cuenta}.
+function expandirGastos(gastos, { y, m0, hoy, esMesActual }) {
+  return gastos.flatMap(g => ocurrenciasEnMes(g, y, m0, hoy, { incluirAtrasadas: esMesActual }).map(() => ({ monto: g.monto || 0, cuenta: g.cuenta })));
+}
+function expandirCobros(cobros, { y, m0, mesStart, mesEnd, hoy, esMesActual }) {
+  return cobros.filter(c => c.activo !== false).flatMap(c => {
+    if (!esRecurrente(c)) {
+      const vence = c.estado !== 'cobrado' && c.fecha_esperada && c.fecha_esperada >= mesStart && c.fecha_esperada <= mesEnd;
+      return vence ? [{ monto: c.monto || 0, cuenta: c.cuenta }] : [];
+    }
+    return ocurrenciasEnMes(c, y, m0, hoy, { incluirAtrasadas: esMesActual }).map(() => ({ monto: c.monto || 0, cuenta: c.cuenta }));
+  });
+}
+
 function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
   const now = new Date();
   const m = now.getMonth() + 1;
@@ -108,37 +127,16 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
   }
   const proj1 = calcProjCuenta(cfg.c1, bal1);
   const proj2 = cfg.single ? null : calcProjCuenta(cfg.c2, bal2);
-  const projTotal = projection ? balanceActual
-    + projection.cobros.reduce((s, r) => s + (r.monto || 0), 0)
-    - projection.deudas.reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
-    - projection.cuotas.reduce((s, r) => s + (r.monto || 0), 0)
-    - projection.gastos.reduce((s, r) => s + (r.monto || 0), 0)
-    - (projection.tarjetas || []).reduce((s, r) => s + (r.monto || 0), 0) : null;
-  const projPos = projTotal !== null && projTotal >= 0;
 
   const projScrollRef = useRef(null);
   const [projShowHint, setProjShowHint] = useState(true);
 
   function calcFuturoCuenta(c, mo) {
     if (!rawData) return { inc: 0, exp: 0, result: 0 };
-    const { mesStr, mesStart, mesEnd, i } = mo;
-    const inc = rawData.cobros.filter(r => deCuenta(r.cuenta, c) && r.fecha_esperada >= mesStart && r.fecha_esperada <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
-    const now2 = new Date();
-    const mesGastos = rawData.gastos.filter(g => {
-      if (!deCuenta(g.cuenta, c)) return false;
-      if (i === 0) {
-        if (g.frecuencia === 'semanal') {
-          if (!g.pagado_fecha) return true;
-          return Math.floor((now2 - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 7;
-        }
-        if (g.frecuencia === 'quincenal') {
-          if (!g.pagado_fecha) return true;
-          return Math.floor((now2 - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 15;
-        }
-        return g.pagado_mes !== mesStr;
-      }
-      return true;
-    });
+    const { mesStart, mesEnd, i, y, m0 } = mo;
+    const hoy = hoyISO();
+    const inc = expandirCobros(rawData.cobros.filter(r => deCuenta(r.cuenta, c)), { y, m0, mesStart, mesEnd, hoy, esMesActual: i === 0 }).reduce((s, r) => s + r.monto, 0);
+    const mesGastos = expandirGastos(rawData.gastos.filter(g => deCuenta(g.cuenta, c)), { y, m0, hoy, esMesActual: i === 0 });
     const exp = rawData.deudas.filter(r => deCuenta(r.cuenta, c) && r.fecha_limite >= mesStart && r.fecha_limite <= mesEnd).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
       + rawData.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c) && r.fecha_vencimiento >= mesStart && r.fecha_vencimiento <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0)
       + mesGastos.reduce((s, r) => s + (r.monto || 0), 0)
@@ -463,7 +461,7 @@ export default function Home() {
       // Check license
       const { data: lic } = await supabase.from('licencias').select('*').eq('email', email).single();
       const today = new Date(); today.setHours(0,0,0,0);
-      const todayStr = today.toISOString().slice(0,10);
+      const todayStr = hoyISO();
       if (lic && lic.activo && lic.solo_lectura) {
         setLicStatus('solo_lectura'); setMotivoLectura('admin');
       } else if (lic && lic.activo) {
@@ -574,46 +572,35 @@ export default function Home() {
     const lastDay = new Date(y, mo + 1, 0).getDate();
     const mesStart = `${y}-${m}-01`, mesEnd = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
     const [r1, r2, r3, r4, r5] = await Promise.all([
-      supabase.from('receivables').select('monto, cuenta, estado').eq('user_id', userId).gte('fecha_esperada', mesStart).lte('fecha_esperada', mesEnd),
+      supabase.from('receivables').select(COLS_COBRO).eq('user_id', userId),
       supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
       supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
+      supabase.from('recurring_expenses').select(COLS_GASTO).eq('user_id', userId).eq('activo', true),
       supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado').gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
     ]);
-    const mesStr = `${y}-${m}`;
-    const filterGasto = (g) => {
-      if (g.frecuencia === 'semanal') {
-        if (!g.pagado_fecha) return true;
-        return Math.floor((now - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 7;
-      }
-      if (g.frecuencia === 'quincenal') {
-        if (!g.pagado_fecha) return true;
-        return Math.floor((now - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) >= 15;
-      }
-      return g.pagado_mes !== mesStr;
-    };
+    const hoy = hoyISO();
     setProjection({
-      cobros: (r1.data || []).filter(r => r.estado !== 'cobrado'),
+      cobros: expandirCobros(r1.data || [], { y, m0: mo, mesStart, mesEnd, hoy, esMesActual: true }),
       deudas: (r2.data || []).filter(r => r.estado !== 'pagado'),
       cuotas: (r3.data || []).filter(r => r.installment_purchases),
-      gastos: (r4.data || []).filter(filterGasto),
+      gastos: expandirGastos(r4.data || [], { y, m0: mo, hoy, esMesActual: true }),
       tarjetas: r5.data || [],
     });
   }, []);
 
   const loadFutureProjections = useCallback(async (userId) => {
     const now = new Date();
-    const nowStr = now.toISOString().slice(0, 10);
+    const nowStr = hoyISO();
     const futureEnd = new Date(now.getFullYear(), now.getMonth() + 13, 0);
-    const futureEndStr = futureEnd.toISOString().slice(0, 10);
+    const futureEndStr = `${futureEnd.getFullYear()}-${String(futureEnd.getMonth() + 1).padStart(2, '0')}-${String(futureEnd.getDate()).padStart(2, '0')}`;
     const [r1, r2, r3, r4, r5] = await Promise.all([
-      supabase.from('receivables').select('monto, cuenta, estado, fecha_esperada').eq('user_id', userId).gte('fecha_esperada', nowStr).lte('fecha_esperada', futureEndStr),
+      supabase.from('receivables').select(COLS_COBRO).eq('user_id', userId),
       supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, fecha_limite').eq('user_id', userId).gte('fecha_limite', nowStr).lte('fecha_limite', futureEndStr),
       supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', nowStr).lte('fecha_vencimiento', futureEndStr).eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
+      supabase.from('recurring_expenses').select(COLS_GASTO).eq('user_id', userId).eq('activo', true),
       supabase.from('card_expenses').select('monto, cuenta, estado, fecha:fecha_compra').eq('user_id', userId).neq('estado', 'pagado').gte('fecha_compra', nowStr).lte('fecha_compra', futureEndStr),
     ]);
-    const cobros = (r1.data || []).filter(r => r.estado !== 'cobrado');
+    const cobros = (r1.data || []).filter(r => r.activo !== false && (esRecurrente(r) || (r.estado !== 'cobrado' && r.fecha_esperada >= nowStr && r.fecha_esperada <= futureEndStr)));
     const deudas = (r2.data || []).filter(r => r.estado !== 'pagado');
     const cuotas = (r3.data || []).filter(r => r.installment_purchases);
     const gastos = r4.data || [];
@@ -626,33 +613,35 @@ export default function Home() {
       const m = String(mo + 1).padStart(2, '0');
       const mesStr = `${y}-${m}`;
       const lastDay = new Date(y, mo + 1, 0).getDate();
-      months.push({ i, mesStr, nombre: MESES[mo], año: y, añoDistinto: y !== thisYear, mesStart: `${y}-${m}-01`, mesEnd: `${y}-${m}-${String(lastDay).padStart(2, '0')}` });
+      months.push({ i, y, m0: mo, mesStr, nombre: MESES[mo], año: y, añoDistinto: y !== thisYear, mesStart: `${y}-${m}-01`, mesEnd: `${y}-${m}-${String(lastDay).padStart(2, '0')}` });
     }
     setFutureRawData({ cobros, deudas, cuotas, gastos, tarjetas, months });
   }, []);
 
   const loadNotifications = useCallback(async (userId, userCfg) => {
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
-    const in7 = new Date(today); in7.setDate(in7.getDate() + 7);
-    const in7Str = in7.toISOString().slice(0, 10);
-    const currentMes = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
-    const lastDay = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+    const todayStr = hoyISO();
+    const in7Str = sumarDias(todayStr, 7);
 
     const [r1, r2, r3, r4, r5] = await Promise.all([
-      supabase.from('receivables').select('cliente, monto, fecha_esperada, cuenta, estado').eq('user_id', userId),
+      supabase.from('receivables').select('cliente, ' + COLS_COBRO).eq('user_id', userId),
       supabase.from('debts').select('acreedor, monto_total, monto_pagado, fecha_limite, cuenta, estado').eq('user_id', userId),
       supabase.from('installments').select('monto, fecha_vencimiento, estado, installment_purchases!inner(descripcion, user_id, cuenta)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('descripcion, monto, dia_vencimiento, cuenta, pagado_mes, frecuencia, pagado_fecha').eq('user_id', userId).eq('activo', true),
+      supabase.from('recurring_expenses').select('descripcion, ' + COLS_GASTO).eq('user_id', userId).eq('activo', true),
       supabase.from('card_expenses').select('descripcion, monto, fecha:fecha_compra, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado'),
     ]);
 
     const overdue = [], upcoming = [];
 
-    (r1.data || []).filter(r => r.estado !== 'cobrado' && r.fecha_esperada).forEach(r => {
-      const item = { tipo: 'cobro', label: r.cliente, monto: r.monto, fecha: r.fecha_esperada, cuenta: r.cuenta };
-      if (r.fecha_esperada < todayStr) overdue.push(item);
-      else if (r.fecha_esperada <= in7Str) upcoming.push(item);
+    // Un aviso por ítem: el próximo vencimiento. Los repetitivos avisan con
+    // menos anticipación (un semanal siempre está a menos de 7 días).
+    (r1.data || []).filter(r => r.activo !== false).forEach(r => {
+      const recurrente = esRecurrente(r);
+      if (!recurrente && (r.estado === 'cobrado' || !r.fecha_esperada)) return;
+      const fecha = recurrente ? proximoDe(r, todayStr) : r.fecha_esperada;
+      if (!fecha) return;
+      const item = { tipo: 'cobro', label: r.cliente, monto: r.monto, fecha, cuenta: r.cuenta };
+      if (fecha < todayStr) overdue.push(item);
+      else if (fecha <= sumarDias(todayStr, recurrente ? ventanaAviso(r.frecuencia) : 7)) upcoming.push(item);
     });
 
     (r2.data || []).filter(r => r.estado !== 'pagado' && r.fecha_limite).forEach(r => {
@@ -668,16 +657,11 @@ export default function Home() {
     });
 
     (r4.data || []).forEach(g => {
-      const diasDesde = g.pagado_fecha ? Math.floor((today - new Date(g.pagado_fecha + 'T12:00:00')) / 86400000) : 999;
-      const pendiente = g.frecuencia === 'semanal' ? diasDesde >= 7
-        : g.frecuencia === 'quincenal' ? diasDesde >= 15
-        : g.pagado_mes !== currentMes;
-      if (!pendiente) return;
-      const dueDay = Math.min(g.dia_vencimiento || 1, lastDay);
-      const dueDate = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(dueDay).padStart(2,'0')}`;
-      const item = { tipo: 'gasto', label: g.descripcion, monto: g.monto, fecha: dueDate, cuenta: g.cuenta };
-      if (dueDate < todayStr) overdue.push(item);
-      else if (dueDate <= in7Str) upcoming.push(item);
+      const fecha = proximoDe(g, todayStr);
+      if (!fecha) return;
+      const item = { tipo: 'gasto', label: g.descripcion, monto: g.monto, fecha, cuenta: g.cuenta };
+      if (fecha < todayStr) overdue.push(item);
+      else if (fecha <= sumarDias(todayStr, ventanaAviso(g.frecuencia || 'mensual'))) upcoming.push(item);
     });
 
     (r5.data || []).forEach(t => {
@@ -718,7 +702,7 @@ export default function Home() {
   }, [session, loadTransactions, loadProjection, loadFutureProjections, loadNotifications, cargarPrimerosPasos]);
 
   useEffect(() => {
-    setFecha(new Date().toISOString().slice(0, 10));
+    setFecha(hoyISO());
   }, []);
 
   if (session === undefined || licStatus === 'loading') return null;

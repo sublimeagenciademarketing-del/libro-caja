@@ -29,12 +29,12 @@ with usadas(tabla, columna) as (values
 
   ('receivables','id'),('receivables','user_id'),('receivables','cuenta'),('receivables','cliente'),
   ('receivables','monto'),('receivables','fecha_esperada'),('receivables','forma_pago'),
-  ('receivables','frecuencia'),('receivables','estado'),
+  ('receivables','frecuencia'),('receivables','estado'),('receivables','proximo_vencimiento'),('receivables','cobrado_fecha'),('receivables','activo'),
 
   ('recurring_expenses','id'),('recurring_expenses','user_id'),('recurring_expenses','cuenta'),
   ('recurring_expenses','descripcion'),('recurring_expenses','monto'),
   ('recurring_expenses','dia_vencimiento'),('recurring_expenses','frecuencia'),
-  ('recurring_expenses','activo'),('recurring_expenses','pagado_mes'),('recurring_expenses','pagado_fecha'),
+  ('recurring_expenses','activo'),('recurring_expenses','pagado_mes'),('recurring_expenses','pagado_fecha'),('recurring_expenses','proximo_vencimiento'),
 
   ('savings_contributions','id'),('savings_contributions','goal_id'),
   ('savings_contributions','user_id'),('savings_contributions','monto'),('savings_contributions','fecha'),
