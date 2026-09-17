@@ -3,11 +3,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA } from '../../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL } from '../../lib/config';
+import { estadoPush, activarPush, desuscribirPush } from '../../lib/push-cliente';
 import { sumarMeses } from '../../lib/fechas';
 import { hoyISO, deISO, mesDe, enMes, sumarDias, siguiente, proximoDe, esRecurrente, estadoDe, textoEstado, ocurrenciasEnMes, cadenciaEnMes, alPagar, alRevertir } from '../../lib/recurrencia';
 
-const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
 // card_expenses.estado no admite 'pendiente': sus valores son
 // pendiente_facturacion / facturado / pagado. Este es el valor por defecto.
@@ -598,36 +598,52 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 
   async function handleSaveEditCuota(id) {
     const frec = editForm.frecuencia || 'mensual';
-    const diaVenc = (editForm.frecuencia || 'mensual') === 'mensual' ? (parseInt(editForm.dia_vencimiento) || 1) : (editForm.fecha_primera_cuota ? deISO(editForm.fecha_primera_cuota).getDate() : 1);
+    const diaVenc = frec === 'mensual' ? (parseInt(editForm.dia_vencimiento) || 1) : (editForm.fecha_primera_cuota ? deISO(editForm.fecha_primera_cuota).getDate() : 1);
+    const monto = parseFloat(editForm.monto);
+    const total = parseInt(editForm.total_cuotas);
+    if (!editForm.descripcion.trim() || !monto || !total || total < 1 || !editForm.fecha_primera_cuota) { alert('Completá todos los campos.'); return; }
+
+    // Las cuotas ya pagadas no se tocan: se ajustan las pendientes y se agregan
+    // o quitan al final. Bajar la cantidad solo vale si las que sobran están pendientes.
+    const { data: existing } = await supabase.from('installments').select('*').eq('purchase_id', id).order('numero_cuota');
+    const cuotas = existing || [];
+    const pagadaFuera = cuotas.find(c => c.estado === 'pagado' && c.numero_cuota > total);
+    if (pagadaFuera) { alert(`No se puede bajar a ${total} cuotas: la cuota ${pagadaFuera.numero_cuota} ya está pagada.`); return; }
+
+    const fechaDe = (numero) => {
+      const i = numero - 1;
+      const d = new Date(editForm.fecha_primera_cuota + 'T12:00:00');
+      if (frec === 'semanal') d.setDate(d.getDate() + i * 7);
+      else if (frec === 'quincenal') d.setDate(d.getDate() + i * 15);
+      else d.setTime(sumarMeses(d, i, diaVenc).getTime());
+      return d.toISOString().slice(0, 10);
+    };
+
     await supabase.from('installment_purchases').update({
       descripcion: editForm.descripcion.trim(),
       cuenta: editForm.cuenta,
       frecuencia: frec,
       dia_vencimiento: diaVenc,
       fecha_primera_cuota: editForm.fecha_primera_cuota,
+      monto_por_cuota: monto,
+      total_cuotas: total,
     }).eq('id', id);
 
-    // Regenerar cuotas pendientes con nuevas fechas
-    const purchase = purchases.find(p => p.id === id);
-    if (purchase && editForm.fecha_primera_cuota) {
-      const { data: existing } = await supabase.from('installments').select('*').eq('purchase_id', id).order('numero_cuota');
-      const pendientes = (existing || []).filter(c => c.estado === 'pendiente');
-      if (pendientes.length > 0) {
-        const firstPendiente = pendientes[0].numero_cuota;
-        const firstDate = new Date(editForm.fecha_primera_cuota + 'T12:00:00');
-        const updates = pendientes.map((c, idx) => {
-          const d = new Date(firstDate);
-          const i = firstPendiente - 1 + idx;
-          if (frec === 'semanal') d.setDate(d.getDate() + i * 7);
-          else if (frec === 'quincenal') d.setDate(d.getDate() + i * 15);
-          else d.setTime(sumarMeses(firstDate, i, diaVenc).getTime());
-          return supabase.from('installments').update({ fecha_vencimiento: d.toISOString().slice(0, 10) }).eq('id', c.id);
-        });
-        await Promise.all(updates);
-      }
+    const sobran = cuotas.filter(c => c.numero_cuota > total).map(c => c.id);
+    if (sobran.length) await supabase.from('installments').delete().in('id', sobran);
+
+    const pendientes = cuotas.filter(c => c.estado === 'pendiente' && c.numero_cuota <= total);
+    await Promise.all(pendientes.map(c => supabase.from('installments').update({ monto, fecha_vencimiento: fechaDe(c.numero_cuota) }).eq('id', c.id)));
+
+    const ultima = cuotas.reduce((m, c) => Math.max(m, c.numero_cuota), 0);
+    const nuevas = [];
+    for (let n = ultima + 1; n <= total; n++) {
+      nuevas.push({ purchase_id: id, user_id: userId, numero_cuota: n, monto, fecha_vencimiento: fechaDe(n), estado: 'pendiente' });
     }
+    if (nuevas.length) await supabase.from('installments').insert(nuevas);
 
     setEditingId(null);
+    if (installments[id]) loadInstallments(id);
     load();
   }
 
@@ -741,13 +757,17 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                       {expanded === p.id ? '▲' : '▼'}
                     </button>
                     {!soloLectura && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                      onClick={() => { setEditingId(p.id); setEditForm({ descripcion: p.descripcion, cuenta: p.cuenta || cfg.c1, frecuencia: p.frecuencia || 'mensual', dia_vencimiento: p.dia_vencimiento || '', fecha_primera_cuota: p.fecha_primera_cuota || '' }); }}>✎</button>}
+                      onClick={() => { setEditingId(p.id); setEditForm({ descripcion: p.descripcion, cuenta: p.cuenta || cfg.c1, frecuencia: p.frecuencia || 'mensual', dia_vencimiento: p.dia_vencimiento || '', fecha_primera_cuota: p.fecha_primera_cuota || '', monto: String(Math.round(p.monto_por_cuota || 0)), total_cuotas: String(p.total_cuotas || '') }); }}>✎</button>}
                     {!soloLectura && <button className="del" onClick={() => handleDeletePurchase(p.id)} title="Eliminar">✕</button>}
                   </div>
                 </div>
                 {editingId === p.id && (
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div className="row"><div className="field"><label>Descripción</label><input type="text" value={editForm.descripcion} onChange={e => setEditForm(f => ({...f, descripcion: e.target.value}))} /></div></div>
+                    <div className="row">
+                      <div className="field"><label>Monto por cuota (₲)</label><input type="text" inputMode="numeric" className="num" value={fmtD(editForm.monto)} onChange={e => setEditForm(f => ({...f, monto: e.target.value.replace(/\D/g, '')}))} /></div>
+                      <div className="field" style={{ maxWidth: 110 }}><label>Cuotas</label><input type="number" inputMode="numeric" min="1" max="120" value={editForm.total_cuotas} onChange={e => setEditForm(f => ({...f, total_cuotas: e.target.value.replace(/\D/g, '')}))} /></div>
+                    </div>
                     <div className="row">
                       {(editForm.frecuencia || 'mensual') === 'mensual' && <div className="field" style={{ maxWidth: 100 }}><label>Día vence</label><input type="number" min="1" max="31" value={editForm.dia_vencimiento} onChange={e => setEditForm(f => ({...f, dia_vencimiento: e.target.value}))} placeholder="10" /></div>}
                       <div className="field"><label>Primera cuota</label><input type="date" value={editForm.fecha_primera_cuota} onChange={e => setEditForm(f => ({...f, fecha_primera_cuota: e.target.value}))} /></div>
@@ -787,8 +807,9 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                           !soloLectura && <button className="cuota-pay-btn" style={{ background: 'rgba(251,146,60,0.15)', borderColor: 'rgba(251,146,60,0.3)', color: '#fb923c' }}
                             onClick={async () => {
                               if (!window.confirm(`¿Revertir pago de cuota #${c.numero_cuota}?`)) return;
-                              const cat = `${p.descripcion} — Cuota ${c.numero_cuota}/${p.total_cuotas}`;
-                              const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).eq('categoria', cat).order('fecha', { ascending: false }).limit(1);
+                              // El movimiento se busca sin el total ('Cuota 1/'): si la cantidad de cuotas se editó después de pagar, el texto viejo dice otro total.
+                              const cat = `${p.descripcion} — Cuota ${c.numero_cuota}/`;
+                              const { data: txs } = await supabase.from('transactions').select('id').eq('user_id', userId).like('categoria', cat + '%').order('fecha', { ascending: false }).limit(1);
                               await Promise.all([
                                 supabase.from('installments').update({ estado: 'pendiente' }).eq('id', c.id),
                                 txs?.length ? supabase.from('transactions').delete().eq('id', txs[0].id) : Promise.resolve(),
@@ -1935,6 +1956,56 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 }
 
 /* ─── PERFIL ─── */
+// Recordatorios push en este dispositivo (se muestra dentro de Perfil).
+function Recordatorios({ userId }) {
+  const [estado, setEstado] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  useEffect(() => { estadoPush().then(setEstado); }, []);
+
+  async function alternar() {
+    if (ocupado) return;
+    setOcupado(true);
+    if (estado === 'activado') await desuscribirPush();
+    else await activarPush(userId);
+    setEstado(await estadoPush());
+    setOcupado(false);
+  }
+
+  const activo = estado === 'activado';
+  const conInterruptor = estado === 'activado' || estado === 'desactivado';
+  const aviso = {
+    sin_instalar: 'En iPhone, primero agregá MiCaja a tu pantalla de inicio: botón Compartir → "Agregar a inicio". Después volvé acá para activarlos.',
+    no_soportado: 'Este navegador no permite recordatorios en el teléfono.',
+    bloqueado: 'Los avisos están bloqueados en el teléfono. Activalos en Ajustes → Notificaciones → MiCaja y volvé acá.',
+  }[estado];
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 16, padding: '18px 16px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Recordatorios en el teléfono</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 36, height: 36, borderRadius: 10, background: activo ? 'linear-gradient(135deg,#f59e0b,#f97316)' : 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={activo ? '#fff' : 'rgba(255,255,255,0.5)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+            {estado === null ? 'Revisando…' : activo ? 'Activados en este teléfono' : 'Desactivados'}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, lineHeight: 1.5 }}>
+            Pagos, cuotas, tarjetas y cobros por vencer o vencidos. Un aviso por día, a la mañana.
+          </div>
+        </div>
+        {conInterruptor && (
+          <button type="button" role="switch" aria-checked={activo} aria-label="Recordatorios en el teléfono" className={`switch${activo ? ' on' : ''}`} onClick={alternar} disabled={ocupado} />
+        )}
+      </div>
+      {aviso && (
+        <div style={{ marginTop: 12, fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10, padding: '10px 12px' }}>{aviso}</div>
+      )}
+    </div>
+  );
+}
+
 function Perfil({ userId, userEmail }) {
   const [cuenta1, setCuenta1] = useState('');
   const [cuenta2, setCuenta2] = useState('');
@@ -2199,6 +2270,8 @@ function Perfil({ userId, userEmail }) {
             ¡Guardado correctamente!
           </div>
         )}
+
+        <Recordatorios userId={userId} />
 
         <button type="submit" disabled={saving} style={{ padding: '14px', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Guardando...' : 'Guardar cambios'}

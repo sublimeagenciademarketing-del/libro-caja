@@ -3,14 +3,16 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
-import { DIAS_PRUEBA } from '../lib/config';
-import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes, ventanaAviso, sumarDias } from '../lib/recurrencia';
+import { DIAS_PRUEBA, ADMIN_EMAIL } from '../lib/config';
+import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes } from '../lib/recurrencia';
+import { cargarAvisos, calcularAvisos } from '../lib/avisos';
+import { suscribirPush, activarPush } from '../lib/push-cliente';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
 
-const TIPO_ICON = { cobro: '📥', deuda: '📤', cuota: '🗓️', gasto: '🔄' };
-const TIPO_LABEL = { cobro: 'Cobro', deuda: 'Deuda', cuota: 'Cuota', gasto: 'Gasto fijo' };
+const TIPO_ICON = { cobro: '📥', deuda: '📤', cuota: '🗓️', gasto: '🔄', tarjeta: '💳' };
+const TIPO_LABEL = { cobro: 'Cobro', deuda: 'Deuda', cuota: 'Cuota', gasto: 'Gasto fijo', tarjeta: 'Tarjeta' };
 
 function NotifItem({ n, cfg }) {
   const cuentaLabel = n.cuenta === cfg?.c1 ? cfg?.l1 : (n.cuenta === cfg?.c2 ? cfg?.l2 : n.cuenta);
@@ -319,7 +321,6 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
 }
 
 
-const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const WA_NUMBER = '595986313704';
 
 function buildCfgFromDB(uc) {
@@ -411,40 +412,23 @@ export default function Home() {
     if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission);
   }, []);
 
-  // iPhone solo muestra el número en el ícono si el app tiene permiso de
-  // notificaciones; pedirlo requiere un toque del usuario.
-  async function pedirPermisoIcono() {
+  // Pedir permiso requiere un toque del usuario. Con permiso, este teléfono
+  // queda anotado para los recordatorios (y en iPhone, para el número del ícono).
+  async function pedirPermisoAvisos() {
     if (typeof Notification === 'undefined') return;
-    const permiso = await Notification.requestPermission();
-    setNotifPerm(permiso);
-    if (permiso === 'granted' && session?.user?.id) suscribirPush(session.user.id);
-  }
-
-  // Registra este dispositivo para recibir avisos aunque el app esté cerrado.
-  // Solo si el usuario ya dio permiso; la suscripción se guarda por dispositivo.
-  async function suscribirPush(userId) {
-    try {
-      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-      const clave = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if (!clave) return;
-      const reg = await navigator.serviceWorker.ready;
-      let sub = await reg.pushManager.getSubscription();
-      if (!sub) {
-        const raw = atob(clave.replace(/-/g, '+').replace(/_/g, '/').padEnd(clave.length + (4 - clave.length % 4) % 4, '='));
-        const bytes = Uint8Array.from(raw, ch => ch.charCodeAt(0));
-        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
-      }
-      const j = sub.toJSON();
-      await supabase.from('push_subscriptions').upsert(
-        { user_id: userId, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, user_agent: navigator.userAgent },
-        { onConflict: 'endpoint' },
-      );
-    } catch {}
+    if (session?.user?.id) await activarPush(session.user.id);
+    setNotifPerm(Notification.permission);
   }
 
   useEffect(() => {
     try { setNotifVistas(new Set(JSON.parse(localStorage.getItem('notif_vistas') || '[]'))); } catch {}
+    // Al tocar un recordatorio push, el app abre con la campanita desplegada.
+    try {
+      if (new URLSearchParams(window.location.search).get('campana') === '1') {
+        setShowNotif(true);
+        window.history.replaceState(null, '', '/');
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -654,61 +638,9 @@ export default function Home() {
     setFutureRawData({ cobros, deudas, cuotas, gastos, tarjetas, months });
   }, []);
 
-  const loadNotifications = useCallback(async (userId, userCfg) => {
-    const todayStr = hoyISO();
-    const in7Str = sumarDias(todayStr, 7);
-
-    const [r1, r2, r3, r4, r5] = await Promise.all([
-      supabase.from('receivables').select('cliente, ' + COLS_COBRO).eq('user_id', userId),
-      supabase.from('debts').select('acreedor, monto_total, monto_pagado, fecha_limite, cuenta, estado').eq('user_id', userId),
-      supabase.from('installments').select('monto, fecha_vencimiento, estado, installment_purchases!inner(descripcion, user_id, cuenta)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
-      supabase.from('recurring_expenses').select('descripcion, ' + COLS_GASTO).eq('user_id', userId).eq('activo', true),
-      supabase.from('card_expenses').select('descripcion, monto, fecha:fecha_compra, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado'),
-    ]);
-
-    const overdue = [], upcoming = [];
-
-    // Un aviso por ítem: el próximo vencimiento. Los repetitivos avisan con
-    // menos anticipación (un semanal siempre está a menos de 7 días).
-    (r1.data || []).filter(r => r.activo !== false).forEach(r => {
-      const recurrente = esRecurrente(r);
-      if (!recurrente && (r.estado === 'cobrado' || !r.fecha_esperada)) return;
-      const fecha = recurrente ? proximoDe(r, todayStr) : r.fecha_esperada;
-      if (!fecha) return;
-      const item = { tipo: 'cobro', label: r.cliente, monto: r.monto, fecha, cuenta: r.cuenta };
-      if (fecha < todayStr) overdue.push(item);
-      else if (fecha <= sumarDias(todayStr, recurrente ? ventanaAviso(r.frecuencia) : 7)) upcoming.push(item);
-    });
-
-    (r2.data || []).filter(r => r.estado !== 'pagado' && r.fecha_limite).forEach(r => {
-      const item = { tipo: 'deuda', label: r.acreedor, monto: (r.monto_total || 0) - (r.monto_pagado || 0), fecha: r.fecha_limite, cuenta: r.cuenta };
-      if (r.fecha_limite < todayStr) overdue.push(item);
-      else if (r.fecha_limite <= in7Str) upcoming.push(item);
-    });
-
-    (r3.data || []).filter(r => r.installment_purchases).forEach(r => {
-      const item = { tipo: 'cuota', label: r.installment_purchases.descripcion, monto: r.monto, fecha: r.fecha_vencimiento, cuenta: r.installment_purchases.cuenta };
-      if (r.fecha_vencimiento < todayStr) overdue.push(item);
-      else if (r.fecha_vencimiento <= in7Str) upcoming.push(item);
-    });
-
-    (r4.data || []).forEach(g => {
-      const fecha = proximoDe(g, todayStr);
-      if (!fecha) return;
-      const item = { tipo: 'gasto', label: g.descripcion, monto: g.monto, fecha, cuenta: g.cuenta };
-      if (fecha < todayStr) overdue.push(item);
-      else if (fecha <= sumarDias(todayStr, ventanaAviso(g.frecuencia || 'mensual'))) upcoming.push(item);
-    });
-
-    (r5.data || []).forEach(t => {
-      const item = { tipo: 'cuota', label: t.descripcion || 'Tarjeta', monto: t.monto, fecha: t.fecha, cuenta: t.cuenta };
-      if (t.fecha < todayStr) overdue.push(item);
-      else if (t.fecha <= in7Str) upcoming.push(item);
-    });
-
-    overdue.sort((a, b) => a.fecha < b.fecha ? -1 : 1);
-    upcoming.sort((a, b) => a.fecha < b.fecha ? -1 : 1);
-    setNotifs({ overdue, upcoming });
+  // La campanita se calcula en lib/avisos.js, igual que los recordatorios push.
+  const loadNotifications = useCallback(async (userId) => {
+    setNotifs(calcularAvisos(await cargarAvisos(supabase, userId), hoyISO()));
   }, []);
 
   const cargarPrimerosPasos = useCallback(async (userId) => {
@@ -936,10 +868,10 @@ export default function Home() {
               <button onClick={() => setShowNotif(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 20, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>✕</button>
             </div>
 
-            {isIOS && isStandalone && notifPerm === 'default' && (
-              <button onClick={pedirPermisoIcono} style={{ width: '100%', marginBottom: 12, padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', lineHeight: 1.4 }}>
-                Mostrar el número de avisos en el ícono del app →
-                <div style={{ fontSize: 11, fontWeight: 400, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>iPhone te pide permiso una sola vez.</div>
+            {notifPerm === 'default' && (!isIOS || isStandalone) && typeof window !== 'undefined' && 'PushManager' in window && (
+              <button onClick={pedirPermisoAvisos} style={{ width: '100%', marginBottom: 12, padding: '10px 12px', borderRadius: 12, border: '1px solid rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', lineHeight: 1.4 }}>
+                Recibir recordatorios de tus pagos y cobros en el teléfono →
+                <div style={{ fontSize: 11, fontWeight: 400, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>Te avisamos cuando un gasto fijo, cuota, tarjeta o cobro está por vencer o se venció. El teléfono pide permiso una sola vez.</div>
               </button>
             )}
 
