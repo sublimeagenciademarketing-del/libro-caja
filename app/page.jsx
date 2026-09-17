@@ -423,10 +423,15 @@ export default function Home() {
   useEffect(() => {
     try { setNotifVistas(new Set(JSON.parse(localStorage.getItem('notif_vistas') || '[]'))); } catch {}
     // Al tocar un recordatorio push, el app abre con la campanita desplegada.
+    // El pedido se guarda en sessionStorage por si el app se recarga al actualizarse.
     try {
       if (new URLSearchParams(window.location.search).get('campana') === '1') {
-        setShowNotif(true);
+        sessionStorage.setItem('abrir_campana', '1');
         window.history.replaceState(null, '', '/');
+      }
+      if (sessionStorage.getItem('abrir_campana') === '1') {
+        sessionStorage.removeItem('abrir_campana');
+        setShowNotif(true);
       }
     } catch {}
   }, []);

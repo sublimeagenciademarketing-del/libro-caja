@@ -33,16 +33,34 @@ const datos = {
   cuotas: [
     { monto: 100, fecha_vencimiento: '2026-09-17', estado: 'pendiente', installment_purchases: { descripcion: 'Heladera', user_id: 'u', cuenta: 'b' } }, // hoy → entra (no vencido)
   ],
+  // Itaú paga el 25; Visa paga el 15. La fecha del gasto es el mes en que se paga.
+  cards: [
+    { id: 'itau', nombre: 'Itaú', dia_vencimiento_pago: 25, fecha_limite_pago: '2026-09-25' },
+    { id: 'visa', nombre: 'Visa', dia_vencimiento_pago: 14, fecha_limite_pago: '2026-09-15' }, // día guardado corrido: manda la fecha escrita
+    { id: 'vieja', nombre: 'Vieja', dia_vencimiento_pago: null, fecha_limite_pago: null },
+  ],
   tarjetas: [
-    { descripcion: 'Súper', monto: 80, fecha: '2026-09-15', cuenta: 'b', estado: 'facturado' }, // vencida
-    { descripcion: 'Nafta', monto: 80, fecha: '2026-09-23', cuenta: 'b', estado: 'pendiente_facturacion' }, // entra
+    { card_id: 'itau', descripcion: 'Súper', monto: 80, fecha: '2026-09-03', cuenta: 'b', estado: 'facturado' },          // Itaú 25/09 → entra (8 días? no: 25-17=8 → no)
+    { card_id: 'itau', descripcion: 'Nafta', monto: 20, fecha: '2026-09-23', cuenta: 'b', estado: 'pendiente_facturacion' }, // Itaú 25/09 (misma línea)
+    { card_id: 'visa', descripcion: 'Ropa', monto: 50, fecha: '2026-09-10', cuenta: 'b', estado: 'facturado' },           // Visa 15/09 → vencida
+    { card_id: 'visa', descripcion: 'Cine', monto: 30, fecha: '2026-10-02', cuenta: 'b', estado: 'pendiente_facturacion' }, // Visa 15/10 → lejos
+    { card_id: 'vieja', descripcion: 'Algo', monto: 10, fecha: '2026-09-20', cuenta: 'b', estado: 'facturado' },          // sin día → usa la fecha del gasto → entra
   ],
 };
 
 const { overdue, upcoming } = calcularAvisos(datos, HOY);
-ok(nombres(overdue) === 'Ana,Luz,Súper,Banco', `vencidos en orden de fecha: ${nombres(overdue)}`);
-ok(nombres(upcoming) === 'Heladera,Juan,Verdulero,Niñera,Nafta,Alquiler', `por vencer en orden de fecha: ${nombres(upcoming)}`);
-ok(upcoming.find(n => n.label === 'Heladera').tipo === 'cuota' && overdue.find(n => n.label === 'Súper').tipo === 'tarjeta', 'tarjeta y cuota con su propio tipo');
+ok(nombres(overdue) === 'Ana,Luz,Visa,Banco', `vencidos en orden de fecha: ${nombres(overdue)}`);
+ok(nombres(upcoming) === 'Heladera,Juan,Verdulero,Niñera,Vieja,Alquiler', `por vencer en orden de fecha: ${nombres(upcoming)}`);
+ok(upcoming.find(n => n.label === 'Heladera').tipo === 'cuota' && overdue.find(n => n.label === 'Visa').tipo === 'tarjeta', 'tarjeta y cuota con su propio tipo');
+const visa = overdue.find(n => n.label === 'Visa');
+ok(visa.fecha === '2026-09-15' && visa.monto === 50, 'tarjeta: vence el día de pago de la tarjeta, con el total de ese mes');
+const todo = calcularAvisos(datos, '2026-09-20');
+const itau = todo.upcoming.find(n => n.label === 'Itaú');
+ok(itau && itau.fecha === '2026-09-25' && itau.monto === 100, 'tarjeta: una sola línea por tarjeta y mes, suma los gastos (80 + 20)');
+ok(!todo.upcoming.find(n => n.label === 'Súper') && !todo.upcoming.find(n => n.label === 'Nafta'), 'los gastos sueltos de tarjeta ya no aparecen');
+const vieja = upcoming.find(n => n.label === 'Vieja');
+ok(vieja && vieja.fecha === '2026-09-20', 'tarjeta sin día de pago cargado: usa la fecha del gasto');
+ok(calcularAvisos({ cards: [{ id: 'x', nombre: 'X', dia_vencimiento_pago: 31 }], tarjetas: [{ card_id: 'x', monto: 5, fecha: '2026-11-03', cuenta: 'a' }] }, '2026-11-25').upcoming[0].fecha === '2026-11-30', 'día de pago 31 en noviembre → 30');
 ok(overdue.find(n => n.label === 'Banco').monto === 1000, 'deuda: monto = lo que falta pagar');
 ok(claveAviso(upcoming[0]) === 'cuota|Heladera|2026-09-17', 'clave tipo|label|fecha');
 
@@ -55,7 +73,7 @@ ok(v.includes('Alquiler') && !v.includes('Internet'), 'mensual avisa a 7 días, 
 console.log('\ntextoAvisos');
 ok(textoAvisos(upcoming) === 'Cuota Heladera (17/09), Cobro a Juan (18/09), Verdulero (19/09) y 3 más', textoAvisos(upcoming));
 ok(textoAvisos(overdue.slice(0, 2)) === 'Cobro a Ana (01/09), Luz (10/09)', textoAvisos(overdue.slice(0, 2)));
-ok(textoAvisos([overdue[2], overdue[3]]) === 'Tarjeta: Súper (15/09), Deuda con Banco (16/09)', textoAvisos([overdue[2], overdue[3]]));
+ok(textoAvisos([overdue[2], overdue[3]]) === 'Tarjeta Visa (15/09), Deuda con Banco (16/09)', textoAvisos([overdue[2], overdue[3]]));
 
 console.log('\nsin datos');
 const vacio = calcularAvisos({}, HOY);

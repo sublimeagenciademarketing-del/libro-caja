@@ -1605,8 +1605,9 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   async function handleAddCard(e) {
     e.preventDefault();
     if (!cardForm.nombre.trim() || !cardForm.fecha_cierre || !cardForm.fecha_limite_pago) return;
-    const dCierre = new Date(cardForm.fecha_cierre).getDate();
-    const dPago = new Date(cardForm.fecha_limite_pago).getDate();
+    // deISO lee la fecha en hora local: new Date('2026-09-20') es medianoche UTC y en Paraguay da el día 19.
+    const dCierre = deISO(cardForm.fecha_cierre).getDate();
+    const dPago = deISO(cardForm.fecha_limite_pago).getDate();
     await supabase.from('credit_cards').insert({
       user_id: userId,
       nombre: cardForm.nombre.trim(),
@@ -1656,6 +1657,8 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       nombre: cicloForm.nombre.trim(),
       fecha_cierre: cicloForm.fecha_cierre,
       fecha_limite_pago: cicloForm.fecha_limite_pago,
+      dia_cierre: deISO(cicloForm.fecha_cierre).getDate(),
+      dia_vencimiento_pago: deISO(cicloForm.fecha_limite_pago).getDate(),
     }).eq('id', cardId);
     setEditCiclo(null);
     load();
