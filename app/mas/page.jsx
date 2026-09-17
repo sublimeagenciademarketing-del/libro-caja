@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { DIAS_PRUEBA, ADMIN_EMAIL } from '../../lib/config';
@@ -215,8 +215,11 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('recurring_expenses').select('*').eq('user_id', userId);
-    const lista = (data || []).map(g => ({ ...g, _proximo: proximoDe(g, hoyISO()) || '9999' }));
-    lista.sort((a, b) => (a.activo === b.activo ? (a._proximo < b._proximo ? -1 : 1) : a.activo ? -1 : 1));
+    // Orden: lo que falta pagar primero (el que vence antes, arriba); al día después; pausados al final.
+    const hoyStr = hoyISO();
+    const lista = (data || []).map(g => ({ ...g, _proximo: proximoDe(g, hoyStr) || '9999' }));
+    const clave = (g) => (!g.activo ? '8' : estadoDe(g, hoyStr).etiqueta === 'al_dia' ? '5' : '1') + g._proximo;
+    lista.sort((a, b) => (clave(a) < clave(b) ? -1 : 1));
     setGastos(lista);
     setLoading(false);
   }, [userId]);
@@ -496,7 +499,19 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('installment_purchases').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    setPurchases(data || []);
+    const compras = data || [];
+    // Todas las cuotas de una vez: así el avance (2/5) se ve sin desplegar y se
+    // puede ordenar por la próxima cuota pendiente. Terminadas al final.
+    const ids = compras.map(p => p.id);
+    const { data: todas } = ids.length ? await supabase.from('installments').select('*').in('purchase_id', ids).order('numero_cuota') : { data: [] };
+    const porCompra = Object.fromEntries(ids.map(id => [id, []]));
+    (todas || []).forEach(c => { (porCompra[c.purchase_id] ||= []).push(c); });
+    setInstallments(porCompra);
+    const clave = (p) => {
+      const pend = (porCompra[p.id] || []).filter(c => c.estado === 'pendiente').map(c => c.fecha_vencimiento).sort();
+      return pend.length ? '1' + pend[0] : '9' + (p.fecha_primera_cuota || '');
+    };
+    setPurchases(compras.sort((a, b) => (clave(a) < clave(b) ? -1 : 1)));
     setLoading(false);
   }, [userId]);
 
@@ -832,6 +847,10 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 }
 
 /* ─── COBROS (Cuentas por cobrar) ─── */
+// Grupos de la lista de cobros, en el orden en que se muestran.
+const grupoCobro = (i) => i.activo === false ? '8' : !esRecurrente(i) ? (i.estado === 'cobrado' ? '9' : '5') : '1';
+const TITULO_GRUPO_COBRO = { '1': 'Repetitivos', '5': 'Una sola vez', '8': 'Pausados', '9': 'Cobrados' };
+
 function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const hoy = hoyISO();
@@ -847,12 +866,9 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('receivables').select('*').eq('user_id', userId);
-    // Orden: pendientes primero por fecha más cercana; cobrados de una vez al final.
-    const clave = (i) => {
-      if (!i.activo) return '8' + (proximoDe(i, hoyISO()) || '9999');
-      if (!esRecurrente(i)) return (i.estado === 'cobrado' ? '9' : '1') + (i.fecha_esperada || '9999');
-      return '1' + (proximoDe(i, hoyISO()) || '9999');
-    };
+    // Orden: repetitivos arriba (vuelven cada período), una sola vez después,
+    // pausados y cobrados al final. Dentro de cada grupo, el que vence antes primero.
+    const clave = (i) => grupoCobro(i) + (esRecurrente(i) ? (proximoDe(i, hoyISO()) || '9999') : (i.fecha_esperada || '9999'));
     setItems((data || []).sort((a, b) => (clave(a) < clave(b) ? -1 : 1)));
     setLoading(false);
   }, [userId]);
@@ -1051,18 +1067,22 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
         <div className="empty">No hay cobros registrados.</div>
       ) : (
         <ul className="mas-list">
-          {items.map(i => {
+          {items.map((i, idx) => {
             const isExp = expandedId === i.id;
             const recurrente = esRecurrente(i);
             const pausado = i.activo === false;
+            const grupo = grupoCobro(i);
+            const separador = (idx === 0 || grupoCobro(items[idx - 1]) !== grupo) && new Set(items.map(grupoCobro)).size > 1
+              ? <li key={'g' + grupo} className="mas-grupo">{TITULO_GRUPO_COBRO[grupo]}</li> : null;
             const est = recurrente ? estadoDe(i, hoy) : null;
             const cobradoUnaVez = !recurrente && i.estado === 'cobrado';
             const apagada = cobradoUnaVez || pausado;
             const linea = recurrente
               ? <>{est.proximo ? `Próximo: ${fmtFecha(est.proximo)} · ` : ''}{etiquetaCuenta(i.cuenta, cfg)} · {nombreFrec(i.frecuencia).toLowerCase()} · <span style={{ color: pausado ? 'rgba(255,255,255,0.4)' : colorEstado[est.etiqueta], fontWeight: 600 }}>{pausado ? 'Pausado' : textoEstado(est)}</span></>
               : <>{i.fecha_esperada ? `Vence: ${fmtFecha(i.fecha_esperada)} · ` : ''}{etiquetaCuenta(i.cuenta, cfg)} · {cobradoUnaVez ? '✓ Cobrado' : 'Pendiente'}</>;
-            return (
-              <li key={i.id} className={apagada ? 'inactive' : (recurrente && est.etiqueta === 'al_dia') ? 'al-dia' : ''}
+            return (<Fragment key={i.id}>
+              {separador}
+              <li className={apagada ? 'inactive' : (recurrente && est.etiqueta === 'al_dia') ? 'al-dia' : ''}
                 style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'pointer' }}
                 onClick={() => setExpandedId(isExp ? null : i.id)}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1103,7 +1123,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   </div>
                 )}
               </li>
-            );
+            </Fragment>);
           })}
         </ul>
       )}
@@ -1125,7 +1145,9 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('debts').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    setItems(data || []);
+    // Orden: pendientes primero (la fecha límite más cercana arriba, sin fecha al final del grupo); pagadas al final.
+    const clave = (d) => (d.estado === 'pagado' ? '9' : '1') + (d.fecha_limite || '9999');
+    setItems((data || []).sort((a, b) => (clave(a) < clave(b) ? -1 : 1)));
     setLoading(false);
   }, [userId]);
 

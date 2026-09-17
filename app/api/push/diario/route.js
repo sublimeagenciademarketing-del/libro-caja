@@ -32,10 +32,13 @@ export async function GET(request) {
     const { data: subs, error: errSubs } = await admin.from('push_subscriptions').select('user_id');
     if (errSubs) throw new Error('push_subscriptions: ' + errSubs.message);
     const userIds = [...new Set((subs || []).map(s => s.user_id))];
-    if (!userIds.length) return Response.json({ ok: true, hoy, usuarios: 0, resumen: [] });
+    if (!userIds.length && !solo) return Response.json({ ok: true, hoy, usuarios: 0, resumen: [] });
 
-    const { data: configs, error: errConf } = await admin.from('user_config')
-      .select('user_id, email, fecha_registro, admin_last_visit').in('user_id', userIds);
+    // Con ?solo= se puede revisar a cualquier usuario, tenga o no dispositivos
+    // (sin dispositivos no se manda nada; sirve para ver qué calcularía).
+    let consulta = admin.from('user_config').select('user_id, email, fecha_registro, admin_last_visit');
+    consulta = solo ? consulta.eq('email', solo) : consulta.in('user_id', userIds);
+    const { data: configs, error: errConf } = await consulta;
     if (errConf) throw new Error('user_config: ' + errConf.message);
     const emails = (configs || []).map(c => c.email).filter(Boolean);
     const { data: lics } = await admin.from('licencias')

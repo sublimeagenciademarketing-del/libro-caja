@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabaseClient';
 import { DIAS_PRUEBA, ADMIN_EMAIL } from '../lib/config';
 import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes } from '../lib/recurrencia';
 import { cargarAvisos, calcularAvisos } from '../lib/avisos';
-import { suscribirPush, activarPush } from '../lib/push-cliente';
+import { suscribirPush, activarPush, estadoPush } from '../lib/push-cliente';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -331,6 +331,52 @@ function buildCfgFromDB(uc) {
 
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
 const claveNotif = (n) => `${n.tipo}|${n.label}|${n.fecha}`;
+
+// Invitación a activar los recordatorios: aparece una sola vez, cuando el
+// teléfono todavía no decidió el permiso, y desaparece al activar o al cerrarla.
+function InvitacionRecordatorios({ userId, onCambio }) {
+  const [visible, setVisible] = useState(false);
+  const [ocupado, setOcupado] = useState(false);
+  const clave = `invitacion_recordatorios_${userId}`;
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try { if (localStorage.getItem(clave) === '1') return; } catch {}
+      if (typeof Notification === 'undefined' || Notification.permission !== 'default') return;
+      const estado = await estadoPush();
+      if (vivo && estado === 'desactivado') setVisible(true);
+    })();
+    return () => { vivo = false; };
+  }, [clave]);
+
+  function cerrar() {
+    try { localStorage.setItem(clave, '1'); } catch {}
+    setVisible(false);
+  }
+  async function activar() {
+    setOcupado(true);
+    await activarPush(userId);
+    setOcupado(false);
+    onCambio?.();
+    cerrar();
+  }
+
+  if (!visible) return null;
+  return (
+    <div style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.30)', borderRadius: 16, padding: '12px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#f59e0b,#f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Activá los recordatorios</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, lineHeight: 1.4 }}>Te avisamos en el teléfono cuando un pago o cobro está por vencer.</div>
+      </div>
+      <button type="button" onClick={activar} disabled={ocupado} style={{ padding: '8px 12px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#f59e0b,#f97316)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, opacity: ocupado ? 0.7 : 1 }}>Activar</button>
+      <button type="button" onClick={cerrar} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 18, cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>✕</button>
+    </div>
+  );
+}
 
 function PrimerosPasos({ pasos }) {
   const hechos = pasos.filter(p => p.hecho).length;
@@ -817,6 +863,10 @@ export default function Home() {
         ]} />
         );
       })()}
+
+      {session?.user?.id && licStatus !== 'solo_lectura' && (
+        <InvitacionRecordatorios userId={session.user.id} onCambio={() => { if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission); }} />
+      )}
 
       {showInstall && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)' }} onClick={() => setShowInstall(false)}>
