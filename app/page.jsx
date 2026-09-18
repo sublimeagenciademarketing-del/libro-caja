@@ -388,6 +388,35 @@ function InvitacionRecordatorios({ userId, onCambio }) {
   );
 }
 
+// Novedad de monedas extra: se muestra una sola vez y desaparece al ir a Perfil
+// o al cerrarla, aunque no active ninguna moneda.
+function NovedadMonedas({ userId, cfg, onIr }) {
+  const clave = `novedad_monedas_${userId}`;
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    try { setVisible(localStorage.getItem(clave) !== '1' && !(cfg.monedas || []).length); } catch {}
+  }, [clave, cfg.monedas]);
+
+  function cerrar() {
+    try { localStorage.setItem(clave, '1'); } catch {}
+    setVisible(false);
+  }
+
+  if (!visible) return null;
+  return (
+    <div style={{ background: 'rgba(14,165,233,0.10)', border: '1px solid rgba(14,165,233,0.30)', borderRadius: 16, padding: '12px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#fff' }}>US$</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Nuevo: dólares y reales</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, lineHeight: 1.4 }}>Anotá movimientos en US$ o R$, aparte de tus guaraníes. Se activa en Perfil.</div>
+      </div>
+      <button type="button" onClick={() => { cerrar(); onIr?.(); }} style={{ padding: '8px 12px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Ver</button>
+      <button type="button" onClick={cerrar} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 18, cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>✕</button>
+    </div>
+  );
+}
+
 function PrimerosPasos({ pasos }) {
   const hechos = pasos.filter(p => p.hecho).length;
   return (
@@ -891,6 +920,9 @@ export default function Home() {
 
       {session?.user?.id && licStatus !== 'solo_lectura' && (
         <InvitacionRecordatorios userId={session.user.id} onCambio={() => { if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission); }} />
+      )}
+      {session?.user?.id && licStatus !== 'solo_lectura' && (
+        <NovedadMonedas userId={session.user.id} cfg={cfg} onIr={() => router.push('/mas?tab=perfil')} />
       )}
 
       {showInstall && (
