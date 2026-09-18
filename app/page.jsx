@@ -7,6 +7,7 @@ import { DIAS_PRUEBA, ADMIN_EMAIL } from '../lib/config';
 import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes } from '../lib/recurrencia';
 import { cargarAvisos, calcularAvisos } from '../lib/avisos';
 import { suscribirPush, activarPush, estadoPush } from '../lib/push-cliente';
+import { MONEDAS, esGuarani, fmtMoneda, resumenMonedas, textoAcumulados, leerMonto } from '../lib/monedas';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -98,10 +99,12 @@ function expandirCobros(cobros, { y, m0, mesStart, mesEnd, hoy, esMesActual }) {
   });
 }
 
-function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
+function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawData }) {
   const now = new Date();
   const m = now.getMonth() + 1;
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
+  // Monedas extra del mes (solo si hay algo cargado): se muestran aparte, chiquito.
+  const extraMes = Object.entries(resumenMonedas(todas || [], mesStr)).filter(([, v]) => v.tieneMes);
   const del_mes = transactions.filter(t => t.fecha && t.fecha.startsWith(mesStr));
 
   // Con una sola cuenta todo pertenece a esa cuenta, aunque el registro
@@ -169,6 +172,13 @@ function DonutDuo({ total1, total2, cfg, transactions, projection, rawData }) {
               <span style={{ fontSize: 12, fontWeight: 700, color: '#f87171' }}>−{fmt(gasTotal)}</span>
             </div>
           </div>
+          {extraMes.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 14, fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 600, marginTop: -2 }}>
+              {extraMes.map(([mo, v]) => (
+                <span key={mo}>{MONEDAS[mo].simbolo} <span style={{ color: '#4ade80' }}>+{fmtMoneda(v.ing, mo).replace(/^\S+ /, '')}</span> / <span style={{ color: '#f87171' }}>−{fmtMoneda(v.gas, mo).replace(/^\S+ /, '')}</span></span>
+              ))}
+            </div>
+          )}
           <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>En caja · {mesNombre}</span>
             <span style={{ fontSize: 15, fontWeight: 800, color: balanceActual >= 0 ? '#34d399' : '#f87171' }}>
@@ -326,7 +336,7 @@ const WA_NUMBER = '595986313704';
 function buildCfgFromDB(uc) {
   const c1 = uc.cuenta1.toLowerCase();
   const c2 = uc.cuenta2 ? uc.cuenta2.toLowerCase() : null;
-  return { c1, c2, l1: uc.cuenta1, l2: uc.cuenta2 || null, single: !uc.cuenta2 };
+  return { c1, c2, l1: uc.cuenta1, l2: uc.cuenta2 || null, single: !uc.cuenta2, monedas: Array.isArray(uc.monedas) ? uc.monedas.filter(m => MONEDAS[m]) : [] };
 }
 
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
@@ -494,15 +504,20 @@ export default function Home() {
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
+  const [moneda, setMoneda] = useState('PYG');
   const [fecha, setFecha] = useState('');
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('ingreso');
   const [cuenta, setCuenta] = useState('sublime');
 
   function handleMontoChange(e) {
-    const raw = e.target.value.replace(/\D/g, '');
-    setMonto(raw);
-    setMontoDisplay(raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
+    const { valor, display } = leerMonto(e.target.value, moneda);
+    setMonto(valor);
+    setMontoDisplay(display);
+  }
+  function cambiarMoneda(m) {
+    if (m === moneda) return;
+    setMoneda(m); setMonto(''); setMontoDisplay('');
   }
 
   async function initUser(s) {
@@ -745,6 +760,7 @@ export default function Home() {
     const { error } = await supabase.from('transactions').insert({
       monto: montoNum, fecha, categoria: categoria.trim(), tipo, cuenta,
       user_id: session.user.id,
+      moneda: (cfg.monedas || []).includes(moneda) ? moneda : 'PYG',
     });
     if (!error) { setMonto(''); setMontoDisplay(''); setCategoria(''); loadTransactions(session.user.id); }
   }
@@ -772,8 +788,13 @@ export default function Home() {
 
   // Con una sola cuenta, todo movimiento le pertenece: contarlos por nombre
   // dejaba fuera los guardados antes de renombrar la cuenta.
+  // Los totales en ₲ solo suman movimientos en guaraníes; las monedas extra
+  // son bolsillos aparte y se muestran en una línea chica.
+  const txGs = transactions.filter(esGuarani);
+  const monedasActivas = cfg.monedas || [];
+  const extraTotal = resumenMonedas(transactions);
   const sumFor = (c) =>
-    transactions.filter((t) => cfg.single || mismaCuenta(t.cuenta, c))
+    txGs.filter((t) => cfg.single || mismaCuenta(t.cuenta, c))
       .reduce((acc, t) => acc + (t.tipo === 'ingreso' ? t.monto : -t.monto), 0);
 
   const total1 = sumFor(cfg.c1);
@@ -971,9 +992,14 @@ export default function Home() {
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
           {cfg.single ? 'Acumulado de todos los meses' : `Acumulado de todos los meses · ${cfg.l1} y ${cfg.l2}`}
         </div>
+        {Object.keys(extraTotal).length > 0 && (
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginTop: 6, letterSpacing: '0.02em' }}>
+            {textoAcumulados(extraTotal)}
+          </div>
+        )}
       </div>
 
-      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={transactions} projection={projection} rawData={futureRawData} />
+      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={txGs} todas={transactions} projection={projection} rawData={futureRawData} />
 
       {!cfg.single && <div className="totals">
         <div style={{ gridColumn: '1/-1', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, textAlign: 'center' }}>En caja · total acumulado</div>
@@ -1007,10 +1033,19 @@ export default function Home() {
         <div className="entry-title">Nuevo movimiento</div>
         <div className="row">
           <div className="field" style={{ flex: 1.4 }}>
-            <label>Monto (₲)</label>
-            <input type="text" inputMode="numeric" className="num"
+            <label style={monedasActivas.length ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 } : undefined}>
+              <span>Monto ({moneda === 'PYG' ? '₲' : MONEDAS[moneda].simbolo})</span>
+              {monedasActivas.length > 0 && (
+                <span className="moneda-pills">
+                  {['PYG', ...monedasActivas].map(m => (
+                    <button type="button" key={m} className={moneda === m ? 'on' : ''} onClick={() => cambiarMoneda(m)}>{m === 'PYG' ? '₲' : MONEDAS[m].simbolo}</button>
+                  ))}
+                </span>
+              )}
+            </label>
+            <input type="text" inputMode={moneda === 'PYG' ? 'numeric' : 'decimal'} className="num"
               value={montoDisplay} onChange={handleMontoChange}
-              placeholder="0" required />
+              placeholder={moneda === 'PYG' ? '0' : '0,00'} required />
           </div>
           <div className="field">
             <label>Fecha</label>
@@ -1076,8 +1111,8 @@ export default function Home() {
                 <div className="cat">{t.categoria}</div>
                 <div className="sub">{fmtFecha(t.fecha)} · {t.cuenta === cfg.c1 ? cfg.l1 : cfg.l2}</div>
               </div>
-              <div className={`amt${t.tipo === 'ingreso' ? ' pos' : ' neg'}`}>
-                {t.tipo === 'ingreso' ? '+' : '−'} {fmt(t.monto)}
+              <div className={`amt${t.tipo === 'ingreso' ? ' pos' : ' neg'}${esGuarani(t) ? '' : ' extra'}`}>
+                {t.tipo === 'ingreso' ? '+' : '−'} {fmtMoneda(t.monto, t.moneda)}
               </div>
               <button className="del" onClick={() => handleDelete(t.id)} title={isAutoTx(t) ? 'Generado desde Más · borrar de todos modos' : 'Eliminar'} style={isAutoTx(t) ? { opacity: 0.55 } : undefined}>✕</button>
             </li>

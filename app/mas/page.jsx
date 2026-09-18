@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL } from '../../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas } from '../../lib/config';
+import { MONEDAS, esGuarani } from '../../lib/monedas';
 import { estadoPush, activarPush, desuscribirPush } from '../../lib/push-cliente';
 import { sumarMeses } from '../../lib/fechas';
 import { hoyISO, deISO, mesDe, enMes, sumarDias, siguiente, proximoDe, esRecurrente, estadoDe, textoEstado, ocurrenciasEnMes, cadenciaEnMes, alPagar, alRevertir } from '../../lib/recurrencia';
@@ -81,14 +82,15 @@ function Resumen({ userId, cfg }) {
       setLoading(true);
       const { data: txs } = await supabase
         .from('transactions')
-        .select('monto,tipo,fecha,cuenta')
+        .select('monto,tipo,fecha,cuenta,moneda')
         .eq('user_id', userId)
         .gte('fecha', `${anio}-01-01`)
         .lte('fecha', `${anio}-12-31`);
 
       const meses = Array.from({ length: 12 }, (_, i) => {
         const key = `${anio}-${String(i+1).padStart(2,'0')}`;
-        const del_mes = (txs || []).filter(t => t.fecha && t.fecha.startsWith(key));
+        // El resumen es en guaraníes; las monedas extra no se mezclan.
+        const del_mes = (txs || []).filter(esGuarani).filter(t => t.fecha && t.fecha.startsWith(key));
         const ing = del_mes.filter(t => t.tipo === 'ingreso').reduce((s,t) => s + t.monto, 0);
         const gas = del_mes.filter(t => t.tipo === 'gasto').reduce((s,t) => s + t.monto, 0);
         const ing1 = del_mes.filter(t => t.tipo === 'ingreso' && (cfg.single || mismaCuenta(t.cuenta, cfg.c1))).reduce((s,t) => s + t.monto, 0);
@@ -1981,6 +1983,51 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 }
 
 /* ─── PERFIL ─── */
+// Monedas extra (US$ y R$): bolsillos aparte del guaraní. Se guardan en
+// user_config.monedas; el panel principal muestra el selector solo si hay alguna.
+function MonedasExtra({ userId }) {
+  const [activas, setActivas] = useState(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  useEffect(() => {
+    supabase.from('user_config').select('monedas').eq('user_id', userId).single()
+      .then(({ data }) => setActivas(Array.isArray(data?.monedas) ? data.monedas : []));
+  }, [userId]);
+
+  async function alternar(m) {
+    if (ocupado || activas === null) return;
+    setOcupado(true);
+    const nuevas = activas.includes(m) ? activas.filter(x => x !== m) : [...activas, m];
+    const { error } = await supabase.from('user_config').update({ monedas: nuevas }).eq('user_id', userId);
+    if (!error) setActivas(nuevas);
+    setOcupado(false);
+  }
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 16, padding: '18px 16px' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>Monedas extra</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {Object.entries(MONEDAS).map(([codigo, info]) => {
+          const on = !!activas?.includes(codigo);
+          return (
+            <div key={codigo} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 10, background: on ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: on ? '#fff' : 'rgba(255,255,255,0.5)' }}>{info.simbolo}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{info.nombre} ({info.simbolo})</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, lineHeight: 1.5 }}>{on ? 'Podés cargar movimientos en esta moneda.' : 'Apagado: el formulario no la ofrece.'}</div>
+              </div>
+              <button type="button" role="switch" aria-checked={on} aria-label={info.nombre} className={`switch${on ? ' on' : ''}`} onClick={() => alternar(codigo)} disabled={ocupado || activas === null} />
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 12, fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>
+        Los movimientos en moneda extra se guardan aparte: no se suman ni se convierten a guaraníes. El balance y las proyecciones siguen en ₲.
+      </div>
+    </div>
+  );
+}
+
 // Recordatorios push en este dispositivo (se muestra dentro de Perfil).
 function Recordatorios({ userId }) {
   const [estado, setEstado] = useState(null);
@@ -2297,6 +2344,8 @@ function Perfil({ userId, userEmail }) {
         )}
 
         <Recordatorios userId={userId} />
+
+        {puedeUsarMonedas(userEmail) && <MonedasExtra userId={userId} />}
 
         <button type="submit" disabled={saving} style={{ padding: '14px', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Guardando...' : 'Guardar cambios'}

@@ -272,7 +272,9 @@ export default function AdminPage() {
       />
 
       {/* Actividad: filtros y copiar emails */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+        {/* Los filtros van en una sola línea que se desliza en el teléfono */}
+        <div className="chips-scroll" style={{ display: 'flex', gap: 6, flex: 1, minWidth: 0, overflowX: 'auto', paddingBottom: 2 }}>
         {[['todos', 'Todos', 'rgba(255,255,255,0.6)'], ...Object.entries(ACTIVIDAD).map(([k, v]) => [k, `${v.label} ${conteoAct[k] || 0}`, v.color])].map(([k, label, color]) => {
           const on = filtroAct === k;
           return (
@@ -282,9 +284,10 @@ export default function AdminPage() {
             </button>
           );
         })}
+        </div>
         <button type="button" onClick={() => copiarEmails(filtered)} disabled={!filtered.length}
-          style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 20, border: '1px solid rgba(165,180,252,0.35)', background: 'rgba(99,102,241,0.12)', color: copiado ? '#34d399' : '#a5b4fc', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
-          {copiado ? '✓ Copiados' : `Copiar emails (${filtered.length})`}
+          style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 20, border: '1px solid rgba(165,180,252,0.35)', background: 'rgba(99,102,241,0.12)', color: copiado ? '#34d399' : '#a5b4fc', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          {copiado ? '✓ Copiados' : `Copiar (${filtered.length})`}
         </button>
       </div>
 

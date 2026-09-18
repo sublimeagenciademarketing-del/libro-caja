@@ -807,3 +807,14 @@ ul.ledger li .del:hover { background: rgba(248,113,113,0.2); color: #f87171; bor
 /* Separador de grupo dentro de una lista (Cobros) */
 .mas-list li.mas-grupo { background: none; border: none; padding: 6px 4px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35); cursor: default; }
 .mas-list li.mas-grupo:first-child { padding-top: 0; }
+
+/* Fila de filtros deslizable (panel admin) */
+.chips-scroll { scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.chips-scroll::-webkit-scrollbar { display: none; }
+
+/* Selector de moneda en el formulario de movimiento */
+.moneda-pills { display: inline-flex; gap: 4px; }
+.moneda-pills button { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: transparent; color: rgba(255,255,255,0.5); cursor: pointer; font-family: inherit; line-height: 1.4; text-transform: none; letter-spacing: 0; }
+.moneda-pills button.on { border-color: rgba(165,180,252,0.6); color: #a5b4fc; background: rgba(99,102,241,0.15); }
+/* Movimiento en moneda extra: un poco más discreto que los de guaraníes */
+ul.ledger li .amt.extra { font-size: 13px; opacity: 0.85; }
