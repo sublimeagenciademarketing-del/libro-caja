@@ -9,6 +9,28 @@ import { hoyISO } from '../../lib/recurrencia';
 const ADMIN_EMAIL = 'sublimeagenciademarketing@gmail.com';
 const fmt = (s) => s ? new Date(s).toLocaleDateString('es-PY', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
 
+// Días entre una fecha (ISO o timestamp) y hoy, en días calendario.
+const diasDesde = (s) => {
+  if (!s) return null;
+  const d = new Date(String(s).length === 10 ? s + 'T12:00:00' : s); d.setHours(0, 0, 0, 0);
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  return Math.round((hoy - d) / 86400000);
+};
+const hace = (s) => { const n = diasDesde(s); return n === null ? '—' : n <= 0 ? 'hoy' : n === 1 ? 'ayer' : n < 60 ? `hace ${n} días` : fmt(s); };
+
+// Actividad por último movimiento cargado: activo (≤7 días), sin actividad (8–30), inactivo (+30), nunca cargó.
+const ACTIVIDAD = {
+  activo:  { label: 'Activo',        color: '#34d399' },
+  quieto:  { label: 'Sin actividad', color: '#fbbf24' },
+  inactivo:{ label: 'Inactivo',      color: 'rgba(255,255,255,0.45)' },
+  nunca:   { label: 'Nunca cargó',   color: '#f87171' },
+};
+const clasificar = (a) => {
+  if (!a || !a.movimientos) return 'nunca';
+  const n = diasDesde(a.ultimo_movimiento);
+  return n <= 7 ? 'activo' : n <= 30 ? 'quieto' : 'inactivo';
+};
+
 function Badge({ status }) {
   const map = {
     active:       { label: 'Activa',       bg: 'rgba(52,211,153,0.15)',  color: '#34d399', border: 'rgba(52,211,153,0.3)' },
@@ -34,6 +56,9 @@ export default function AdminPage() {
   const [saving, setSaving] = useState(false);
   const [successId, setSuccessId] = useState(null);
   const [filterCard, setFilterCard] = useState('total');
+  const [actividad, setActividad] = useState({});
+  const [filtroAct, setFiltroAct] = useState('todos');
+  const [copiado, setCopiado] = useState(false);
   const [pushInfo, setPushInfo] = useState({ dispositivos: null, mensaje: '', enviando: false });
 
   // Cuántos dispositivos del admin reciben avisos push
@@ -44,6 +69,22 @@ export default function AdminPage() {
       setPushInfo(p => ({ ...p, dispositivos: count || 0 }));
     });
   }, []);
+
+  // Actividad de cada usuario (fechas y cantidades, nunca contenido).
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!data.session) return;
+      const r = await fetch('/api/admin/actividad', { headers: { Authorization: `Bearer ${data.session.access_token}` } }).then(x => x.json()).catch(() => ({}));
+      if (r?.actividad) setActividad(r.actividad);
+    });
+  }, []);
+
+  async function copiarEmails(lista) {
+    try {
+      await navigator.clipboard.writeText(lista.map(u => u.email).join(', '));
+      setCopiado(true); setTimeout(() => setCopiado(false), 2000);
+    } catch { alert(lista.map(u => u.email).join(', ')); }
+  }
 
   async function enviarPushPrueba() {
     setPushInfo(p => ({ ...p, enviando: true, mensaje: '' }));
@@ -157,8 +198,10 @@ export default function AdminPage() {
       filterCard === 'active' ? (u.status === 'active' || u.status === 'expiring') :
       filterCard === 'solo_lectura' ? u.status === 'solo_lectura' :
       filterCard === 'demo' ? (u.status === 'demo' || u.status === 'blocked') : true;
-    return matchSearch && matchCard;
+    const matchAct = filtroAct === 'todos' || clasificar(actividad[u.user_id]) === filtroAct;
+    return matchSearch && matchCard && matchAct;
   });
+  const conteoAct = Object.fromEntries(Object.keys(ACTIVIDAD).map(k => [k, users.filter(u => clasificar(actividad[u.user_id]) === k).length]));
 
   const counts = {
     total: users.length,
@@ -228,6 +271,23 @@ export default function AdminPage() {
         style={{ width: '100%', padding: '11px 14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 14, outline: 'none' }}
       />
 
+      {/* Actividad: filtros y copiar emails */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        {[['todos', 'Todos', 'rgba(255,255,255,0.6)'], ...Object.entries(ACTIVIDAD).map(([k, v]) => [k, `${v.label} ${conteoAct[k] || 0}`, v.color])].map(([k, label, color]) => {
+          const on = filtroAct === k;
+          return (
+            <button key={k} type="button" onClick={() => setFiltroAct(k)}
+              style={{ padding: '5px 10px', borderRadius: 20, border: `1px solid ${on ? color : 'rgba(255,255,255,0.1)'}`, background: on ? `${color.startsWith('#') ? color + '22' : 'rgba(255,255,255,0.1)'}` : 'transparent', color: on ? color : 'rgba(255,255,255,0.45)', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+              {label}
+            </button>
+          );
+        })}
+        <button type="button" onClick={() => copiarEmails(filtered)} disabled={!filtered.length}
+          style={{ marginLeft: 'auto', padding: '5px 10px', borderRadius: 20, border: '1px solid rgba(165,180,252,0.35)', background: 'rgba(99,102,241,0.12)', color: copiado ? '#34d399' : '#a5b4fc', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          {copiado ? '✓ Copiados' : `Copiar emails (${filtered.length})`}
+        </button>
+      </div>
+
       {/* User list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {filtered.map(u => (
@@ -241,6 +301,19 @@ export default function AdminPage() {
               </div>
               <Badge status={u.status} />
             </div>
+
+            {(() => {
+              const a = actividad[u.user_id];
+              const k = clasificar(a);
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 8, flexWrap: 'wrap' }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: ACTIVIDAD[k].color, flexShrink: 0 }} />
+                  <span style={{ color: ACTIVIDAD[k].color, fontWeight: 700 }}>{ACTIVIDAD[k].label}</span>
+                  <span>· {a?.movimientos ? `último movimiento ${hace(a.ultimo_movimiento)} · ${a.movimientos} en total` : 'sin movimientos'}</span>
+                  <span>· abrió el app: {a?.ultima_apertura ? hace(a.ultima_apertura) : '—'}</span>
+                </div>
+              );
+            })()}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
               <span>

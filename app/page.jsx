@@ -524,6 +524,10 @@ export default function Home() {
         return;
       }
     }
+    // Última apertura, para el panel admin: se anota una vez por día.
+    if (!uc.ultima_apertura || String(uc.ultima_apertura).slice(0, 10) < new Date().toISOString().slice(0, 10)) {
+      supabase.from('user_config').update({ ultima_apertura: new Date().toISOString() }).eq('user_id', userId).then(() => {});
+    }
     const c = buildCfgFromDB(uc);
     setFechaRegistro(uc.fecha_registro || null);
     setCfg(c);

@@ -47,7 +47,7 @@ with usadas(tabla, columna) as (values
 
   ('user_config','user_id'),('user_config','email'),('user_config','plan'),
   ('user_config','cuenta1'),('user_config','cuenta2'),
-  ('user_config','fecha_registro'),('user_config','admin_last_visit'),('user_config','registrado_en'),
+  ('user_config','fecha_registro'),('user_config','admin_last_visit'),('user_config','registrado_en'),('user_config','ultima_apertura'),
 
   ('user_profiles','id')
 )
