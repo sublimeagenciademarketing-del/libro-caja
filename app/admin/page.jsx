@@ -20,7 +20,7 @@ const hace = (s) => { const n = diasDesde(s); return n === null ? '—' : n <= 0
 
 // Actividad por último movimiento cargado: activo (≤7 días), sin actividad (8–30), inactivo (+30), nunca cargó.
 const ACTIVIDAD = {
-  activo:  { label: 'Activo',        color: '#34d399' },
+  activo:  { label: 'En uso',        color: '#34d399' },
   quieto:  { label: 'Sin actividad', color: '#fbbf24' },
   inactivo:{ label: 'Inactivo',      color: 'rgba(255,255,255,0.45)' },
   nunca:   { label: 'Nunca cargó',   color: '#f87171' },
