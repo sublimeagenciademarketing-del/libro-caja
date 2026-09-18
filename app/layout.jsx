@@ -3,7 +3,7 @@ import { DIAS_PRUEBA } from '../lib/config';
 
 const SITE_URL = 'https://libro-caja-app-phi.vercel.app';
 const TITULO = 'MiCaja — Controlá tu dinero';
-const DESCRIPCION = `Registrá ingresos, gastos, cuotas, tarjetas y deudas desde tu celular. ${DIAS_PRUEBA} días gratis, sin tarjeta. Hecho para Paraguay.`;
+const DESCRIPCION = `Registrá ingresos, gastos, cuotas, tarjetas, cobros y deudas desde tu celular, con recordatorios antes de cada vencimiento. ${DIAS_PRUEBA} días gratis, sin tarjeta. Hecho para Paraguay.`;
 
 export const metadata = {
   metadataBase: new URL(SITE_URL),

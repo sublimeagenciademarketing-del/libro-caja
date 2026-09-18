@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DIAS_PRUEBA } from '../../lib/config';
 
 const WA_NUMBER = '595986313704';
-const WA_TEXT = encodeURIComponent('Hola, quiero contratar MiCaja. ¿Me podés dar más información?');
+const WA_TEXT = encodeURIComponent('Hola, ya probé MiCaja y quiero activar mi cuenta. Mi email registrado es: ');
 const WA_HREF = `https://wa.me/${WA_NUMBER}?text=${WA_TEXT}`;
 
 const EASE = 'cubic-bezier(.22,.8,.3,1)';
@@ -116,13 +116,13 @@ const FEATURES = [
   {
     grad: 'linear-gradient(135deg,#f59e0b,#f97316)',
     title: 'Tarjetas',
-    desc: 'Controlá el consumo de cada tarjeta y su fecha de cierre.',
+    desc: 'Controlá el consumo de cada tarjeta y cuándo vence el pago.',
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg>,
   },
   {
     grad: 'linear-gradient(135deg,#10b981,#059669)',
     title: 'Cobros',
-    desc: 'Anotá lo que te deben y marcá cuándo te pagaron.',
+    desc: 'Anotá lo que te deben, una vez o todos los meses, y marcá cuándo te pagaron.',
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>,
   },
   {
@@ -139,11 +139,26 @@ const FEATURES = [
   },
   {
     grad: 'linear-gradient(135deg,#10b981,#0ea5e9)',
-    title: 'Alertas y proyección',
-    desc: 'Avisos de vencimientos y cuánto vas a tener a fin de mes.',
+    title: 'Recordatorios y proyección',
+    desc: 'Un aviso en tu teléfono cuando algo está por vencer, y cuánto vas a tener a fin de mes.',
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>,
   },
 ];
+
+FEATURES.push(
+  {
+    grad: 'linear-gradient(135deg,#0ea5e9,#6366f1)',
+    title: 'Dólares y reales',
+    desc: 'Anotá lo que tenés en otra moneda, aparte de tus guaraníes, sin mezclar.',
+    svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+  },
+  {
+    grad: 'linear-gradient(135deg,#8b5cf6,#ec4899)',
+    title: 'Una o dos cuentas',
+    desc: 'Solo personal, o tu negocio y lo personal separados en el mismo app.',
+    svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5c3 0 6 2 6 5.5"/></svg>,
+  },
+);
 
 const PLAN_ITEMS = [
   'Acceso completo a todas las funciones',
@@ -216,7 +231,7 @@ export default function LandingPage() {
 
           <Reveal delay={170}>
             <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.5)', lineHeight: 1.7, margin: '0 0 22px' }}>
-              MiCaja es la app que te ayuda a registrar ingresos, gastos, cuotas, cobros y deudas — todo en un solo lugar, desde tu celular.
+              MiCaja registra tus ingresos, gastos, cuotas, cobros y deudas, te avisa en el teléfono antes de que algo venza y te muestra cómo termina tu mes. Todo desde tu celular.
             </p>
           </Reveal>
 
@@ -316,7 +331,7 @@ export default function LandingPage() {
         <section style={{ padding: '0 20px 56px', maxWidth: 560, margin: '0 auto' }}>
           <Reveal>
             <h2 style={{ fontSize: 22, fontWeight: 800, textAlign: 'center', marginBottom: 8, letterSpacing: '-0.02em' }}>Todo lo que necesitás</h2>
-            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '0 0 24px' }}>Ocho secciones para tener tus números claros.</p>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '0 0 24px' }}>Todo lo que hace falta para tener tus números claros.</p>
           </Reveal>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
             {FEATURES.map((f, i) => (
@@ -392,13 +407,28 @@ export default function LandingPage() {
                   </div>
                 ))}
               </div>
-              <a href={WA_HREF} target="_blank" rel="noreferrer" className="mc-btn"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '15px 24px', borderRadius: 14, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontWeight: 800, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 20px rgba(99,102,241,0.45)', marginBottom: 12 }}>
-                <WhatsAppIcon size={18} />
-                Contactar por WhatsApp
-              </a>
-              <a href="/login?registro=1" className="mc-ghost" style={{ display: 'block', padding: '11px 20px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+              {/* Cómo funciona: primero se prueba gratis, la activación viene después */}
+              <div style={{ textAlign: 'left', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Cómo funciona</div>
+                {[
+                  <>Creás tu cuenta y usás MiCaja <b style={{ color: '#fff' }}>{DIAS_PRUEBA} días gratis</b>, con todo, sin tarjeta.</>,
+                  <>Si te sirve, nos escribís por WhatsApp y <b style={{ color: '#fff' }}>activamos tu cuenta</b> por ₲ 80.000 al año.</>,
+                  <>Tus datos quedan tal cual: <b style={{ color: '#fff' }}>no cargás nada de nuevo</b>.</>,
+                ].map((t, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: i < 2 ? 8 : 0 }}>
+                    <span style={{ minWidth: 20, height: 20, borderRadius: 7, background: 'rgba(165,180,252,0.18)', color: '#a5b4fc', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 }}>{t}</span>
+                  </div>
+                ))}
+              </div>
+              <a href="/login?registro=1" className="mc-btn"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '15px 24px', borderRadius: 14, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontWeight: 800, fontSize: 15, textDecoration: 'none', marginBottom: 10 }}>
                 Empezar los {DIAS_PRUEBA} días gratis →
+              </a>
+              <a href={WA_HREF} target="_blank" rel="noreferrer" className="mc-ghost"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px 20px', borderRadius: 12, background: 'rgba(37,211,102,0.08)', border: '1px solid rgba(37,211,102,0.25)', color: '#25d366', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+                <WhatsAppIcon size={15} color="#25d366" />
+                ¿Ya probaste? Activá tu cuenta por WhatsApp
               </a>
             </div>
           </Reveal>
