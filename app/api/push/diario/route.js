@@ -15,6 +15,7 @@ export const maxDuration = 60;
 // Parámetros para probar a mano:
 //   ?solo=email@x.com  → procesa únicamente ese usuario
 //   ?simular=1         → calcula y responde qué mandaría, sin mandar ni anotar
+//   ?repetir=1         → con ?solo=, reenvía todo lo que hay en la campanita aunque ya se haya avisado, sin anotarlo (para ver cómo llega)
 export async function GET(request) {
   const secreto = process.env.CRON_SECRET;
   const auth = request.headers.get('authorization') || '';
@@ -23,6 +24,7 @@ export async function GET(request) {
   const url = new URL(request.url);
   const solo = url.searchParams.get('solo');
   const simular = url.searchParams.get('simular') === '1';
+  const repetir = url.searchParams.get('repetir') === '1' && !!solo;
 
   try {
     const admin = clienteAdmin();
@@ -58,7 +60,7 @@ export async function GET(request) {
       if (!claves.length) { resumen.push({ email: uc.email, novedades: 0 }); continue; }
 
       const { data: ya } = await admin.from('avisos_enviados').select('clave').eq('user_id', uc.user_id).in('clave', claves);
-      const yaAvisado = new Set((ya || []).map(r => r.clave));
+      const yaAvisado = new Set(repetir ? [] : (ya || []).map(r => r.clave));
       const vencidos = overdue.filter(n => !yaAvisado.has(claveDe(n, 'vencido')));
       const proximos = upcoming.filter(n => !yaAvisado.has(claveDe(n, 'proximo')));
       if (!vencidos.length && !proximos.length) { resumen.push({ email: uc.email, novedades: 0 }); continue; }
@@ -83,7 +85,7 @@ export async function GET(request) {
         enviados += r.enviados; dispositivos = r.dispositivos;
       }
       // Se anota solo si algún dispositivo lo recibió; si no, se reintenta otro día.
-      if (enviados > 0) {
+      if (enviados > 0 && !repetir) {
         const nuevas = [...vencidos.map(n => claveDe(n, 'vencido')), ...proximos.map(n => claveDe(n, 'proximo'))];
         await admin.from('avisos_enviados').upsert(nuevas.map(clave => ({ user_id: uc.user_id, clave })), { onConflict: 'user_id,clave', ignoreDuplicates: true });
       }

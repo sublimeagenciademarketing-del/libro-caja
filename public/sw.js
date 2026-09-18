@@ -1,4 +1,4 @@
-const VERSION = '20260917T131951';
+const VERSION = '20260918T190130';
 
 self.addEventListener('install', () => self.skipWaiting());
 
