@@ -486,7 +486,7 @@ export default function LandingPage() {
               <div style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Quién está detrás</div>
               <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 12 }}>Hola, soy Luis Carlos González</div>
               <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, margin: 0 }}>
-                Soy de Santa Rita, tengo 29 años y hace cuatro trabajo en marketing con mi agencia, Sublime.
+                Soy de Santa Rita, tengo 29 años y hace cuatro años trabajo en marketing con mi agencia, Sublime.
                 MiCaja nació en casa: la hice para ordenar las cuentas de mi esposa y las mías, y hoy la uso todos los días también para mi empresa.
                 Cada mejora sale de lo que me piden los usuarios, y el soporte lo doy yo mismo por WhatsApp. Si tenés una duda, me escribís y te respondo.
               </p>
