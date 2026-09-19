@@ -3,11 +3,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL } from '../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeVistaMonedas } from '../lib/config';
 import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes } from '../lib/recurrencia';
 import { cargarAvisos, calcularAvisos } from '../lib/avisos';
 import { suscribirPush, activarPush, estadoPush } from '../lib/push-cliente';
-import { MONEDAS, esGuarani, fmtMoneda, resumenMonedas, textoAcumulados, leerMonto } from '../lib/monedas';
+import { MONEDAS, esGuarani, fmtMoneda, resumenMonedas, textoAcumulados, totalesPorMoneda, leerMonto } from '../lib/monedas';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -99,12 +99,14 @@ function expandirCobros(cobros, { y, m0, mesStart, mesEnd, hoy, esMesActual }) {
   });
 }
 
-function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawData }) {
+function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawData, moneda = 'PYG', vistaMonedas = false }) {
   const now = new Date();
   const m = now.getMonth() + 1;
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
-  // Monedas extra del mes (solo si hay algo cargado): se muestran aparte, chiquito.
-  const extraMes = Object.entries(resumenMonedas(todas || [], mesStr)).filter(([, v]) => v.tieneMes);
+  // Todo lo que muestra este bloque va en la moneda en vista (₲ por defecto).
+  const fmt = (n) => fmtMoneda(n, moneda);
+  // Sin la vista por moneda, las monedas extra del mes se muestran aparte, chiquito.
+  const extraMes = vistaMonedas ? [] : Object.entries(resumenMonedas(todas || [], mesStr)).filter(([, v]) => v.tieneMes);
   const del_mes = transactions.filter(t => t.fecha && t.fecha.startsWith(mesStr));
 
   // Con una sola cuenta todo pertenece a esa cuenta, aunque el registro
@@ -186,7 +188,7 @@ function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawDat
             </span>
           </div>
         </div>
-        {(proj1 !== null || rawData) && (
+        {moneda === 'PYG' && (proj1 !== null || rawData) && (
           <div style={{ width: '100%', margin: '4px 0 8px' }}>
             <div
               ref={projScrollRef}
@@ -284,7 +286,7 @@ function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawDat
           ))}
         </div>
       </div>
-      {(proj1 !== null || rawData) && (
+      {moneda === 'PYG' && (proj1 !== null || rawData) && (
         <div style={{ width: '100%', margin: '4px 0 8px' }}>
           <div
             ref={projScrollRef}
@@ -576,6 +578,9 @@ export default function Home() {
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
   const [moneda, setMoneda] = useState('PYG');
+  const [monedaVista, setMonedaVista] = useState('PYG');   // balance deslizable
+  const [filtroMoneda, setFiltroMoneda] = useState('todas'); // lista de movimientos
+  const gestoRef = useRef(null);
   const [fecha, setFecha] = useState('');
   const [categoria, setCategoria] = useState('');
   const [tipo, setTipo] = useState('ingreso');
@@ -851,21 +856,32 @@ export default function Home() {
     router.push('/login');
   }
 
+  // Cada moneda es un bolsillo aparte. Con la vista por moneda (piloto), el
+  // balance, los anillos y "este mes" muestran la moneda elegida deslizando;
+  // sin ella, todo va en ₲ y las monedas extra se ven en una línea chica.
+  const monedasActivas = cfg.monedas || [];
+  const vistaMonedas = puedeVistaMonedas(session?.user?.email) && monedasActivas.length > 0;
+  const opcionesVista = vistaMonedas ? ['PYG', ...monedasActivas] : ['PYG'];
+  const vista = opcionesVista.includes(monedaVista) ? monedaVista : 'PYG';
+  const txVista = transactions.filter(t => (esGuarani(t) ? 'PYG' : t.moneda) === vista);
+  const extraTotal = vistaMonedas ? {} : resumenMonedas(transactions);
+  const totalesMoneda = totalesPorMoneda(transactions);
+  const cambiarVista = (paso) => {
+    const i = opcionesVista.indexOf(vista);
+    setMonedaVista(opcionesVista[(i + paso + opcionesVista.length) % opcionesVista.length]);
+  };
+
   const anioActual = new Date().getFullYear();
   const mesFiltroStr = `${anioActual}-${String(mesFiltro + 1).padStart(2, '0')}`;
   const filtered = transactions
     .filter(t => t.fecha && t.fecha.startsWith(mesFiltroStr))
-    .filter(t => filter === 'todos' || mismaCuenta(t.cuenta, filter));
+    .filter(t => filter === 'todos' || mismaCuenta(t.cuenta, filter))
+    .filter(t => !vistaMonedas || filtroMoneda === 'todas' || (esGuarani(t) ? 'PYG' : t.moneda) === filtroMoneda);
 
   // Con una sola cuenta, todo movimiento le pertenece: contarlos por nombre
   // dejaba fuera los guardados antes de renombrar la cuenta.
-  // Los totales en ₲ solo suman movimientos en guaraníes; las monedas extra
-  // son bolsillos aparte y se muestran en una línea chica.
-  const txGs = transactions.filter(esGuarani);
-  const monedasActivas = cfg.monedas || [];
-  const extraTotal = resumenMonedas(transactions);
   const sumFor = (c) =>
-    txGs.filter((t) => cfg.single || mismaCuenta(t.cuenta, c))
+    txVista.filter((t) => cfg.single || mismaCuenta(t.cuenta, c))
       .reduce((acc, t) => acc + (t.tipo === 'ingreso' ? t.monto : -t.monto), 0);
 
   const total1 = sumFor(cfg.c1);
@@ -1058,35 +1074,62 @@ export default function Home() {
         </div>
       )}
 
-      <div className="hero-balance">
+      <div className="hero-balance"
+        onTouchStart={vistaMonedas ? (e) => { gestoRef.current = e.touches[0].clientX; } : undefined}
+        onTouchEnd={vistaMonedas ? (e) => {
+          if (gestoRef.current === null) return;
+          const dx = e.changedTouches[0].clientX - gestoRef.current;
+          gestoRef.current = null;
+          if (Math.abs(dx) > 40) cambiarVista(dx < 0 ? 1 : -1);
+        } : undefined}>
         <div className="hero-label">Balance total</div>
         <div className={`hero-number${totalGeneral < 0 ? ' neg' : ''}`}>
-          {totalGeneral < 0 ? '−' : ''}{fmt(totalGeneral)}
+          {totalGeneral < 0 ? '−' : ''}{fmtMoneda(totalGeneral, vista)}
         </div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>
           {cfg.single ? 'Acumulado de todos los meses' : `Acumulado de todos los meses · ${cfg.l1} y ${cfg.l2}`}
         </div>
-        {Object.keys(extraTotal).length > 0 && (
+        {vistaMonedas ? (
+          <>
+            {/* Las otras monedas con movimientos, chiquito; tocarlas también cambia la vista. */}
+            {opcionesVista.filter(mo => mo !== vista && totalesMoneda[mo] !== undefined).length > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 12, marginTop: 6 }}>
+                {opcionesVista.filter(mo => mo !== vista && totalesMoneda[mo] !== undefined).map(mo => (
+                  <button key={mo} type="button" onClick={() => setMonedaVista(mo)}
+                    style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.02em' }}>
+                    {totalesMoneda[mo] < 0 ? '−' : ''}{fmtMoneda(totalesMoneda[mo], mo)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 8 }} aria-label="Cambiar moneda">
+              {opcionesVista.map(mo => (
+                <button key={mo} type="button" onClick={() => setMonedaVista(mo)} aria-label={mo === 'PYG' ? 'Guaraníes' : MONEDAS[mo].nombre}
+                  style={{ width: mo === vista ? 18 : 7, height: 7, borderRadius: 4, border: 'none', padding: 0, cursor: 'pointer', background: mo === vista ? '#a5b4fc' : 'rgba(255,255,255,0.25)', transition: 'width .2s' }} />
+              ))}
+            </div>
+          </>
+        ) : Object.keys(extraTotal).length > 0 && (
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', fontWeight: 600, marginTop: 6, letterSpacing: '0.02em' }}>
             {textoAcumulados(extraTotal)}
           </div>
         )}
       </div>
 
-      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={txGs} todas={transactions} projection={projection} rawData={futureRawData} />
+      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={txVista} todas={transactions} projection={projection} rawData={futureRawData} moneda={vista} vistaMonedas={vistaMonedas} />
 
       {!cfg.single && <div className="totals">
         <div style={{ gridColumn: '1/-1', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, textAlign: 'center' }}>En caja · total acumulado</div>
         <div className="cell sublime">
           <div className="label">{cfg.l1}</div>
           <div className={`amount${total1 < 0 ? ' neg' : ''}`}>
-            {total1 < 0 ? '−' : '+'}{fmt(total1)}
+            {total1 < 0 ? '−' : '+'}{fmtMoneda(total1, vista)}
           </div>
         </div>
           <div className="cell personal">
             <div className="label">{cfg.l2}</div>
             <div className={`amount${total2 < 0 ? ' neg' : ''}`}>
-              {total2 < 0 ? '−' : '+'}{fmt(total2)}
+              {total2 < 0 ? '−' : '+'}{fmtMoneda(total2, vista)}
             </div>
           </div>
       </div>}
@@ -1159,6 +1202,15 @@ export default function Home() {
           <button className={filter === 'todos' ? 'active' : ''} onClick={() => setFilter('todos')}>Todos</button>
           <button className={filter === cfg.c1 ? 'active' : ''} onClick={() => setFilter(cfg.c1)}>{cfg.l1}</button>
           <button className={filter === cfg.c2 ? 'active' : ''} onClick={() => setFilter(cfg.c2)}>{cfg.l2}</button>
+        </div>
+      )}
+
+      {vistaMonedas && (
+        <div className="filters">
+          <button className={filtroMoneda === 'todas' ? 'active' : ''} onClick={() => setFiltroMoneda('todas')}>Todos</button>
+          {opcionesVista.map(mo => (
+            <button key={mo} className={filtroMoneda === mo ? 'active' : ''} onClick={() => setFiltroMoneda(mo)}>{mo === 'PYG' ? '₲' : MONEDAS[mo].simbolo}</button>
+          ))}
         </div>
       )}
 
