@@ -417,6 +417,37 @@ function NovedadMonedas({ userId, cfg, onIr }) {
   );
 }
 
+// Invitación a instalar el app en la pantalla de inicio: solo cuando se usa
+// desde el navegador de un celular, una sola vez por teléfono.
+function InvitacionInstalar({ userId, mostrar, onVer }) {
+  const clave = `invitacion_instalar_${userId}`;
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    try { setVisible(mostrar && localStorage.getItem(clave) !== '1'); } catch {}
+  }, [clave, mostrar]);
+
+  function cerrar() {
+    try { localStorage.setItem(clave, '1'); } catch {}
+    setVisible(false);
+  }
+
+  if (!visible) return null;
+  return (
+    <div style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.30)', borderRadius: 16, padding: '12px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 18h.01"/></svg>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Agregá MiCaja a tu pantalla de inicio</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, lineHeight: 1.4 }}>Abre más rápido, como un app, y podés recibir recordatorios.</div>
+      </div>
+      <button type="button" onClick={() => { cerrar(); onVer?.(); }} style={{ padding: '8px 12px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Ver cómo</button>
+      <button type="button" onClick={cerrar} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 18, cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>✕</button>
+    </div>
+  );
+}
+
 function PrimerosPasos({ pasos }) {
   const hechos = pasos.filter(p => p.hecho).length;
   return (
@@ -492,6 +523,17 @@ export default function Home() {
   const isMobile = typeof window !== 'undefined' && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
   const isIOS = typeof window !== 'undefined' && /iPhone|iPad/i.test(navigator.userAgent);
   const showInstallBtn = isMobile && !isStandalone;
+
+  // Instalar: en Android, el aviso nativo si el navegador lo ofrece; si no, las instrucciones.
+  async function instalarApp() {
+    if (installPromptRef.current) {
+      installPromptRef.current.prompt();
+      const { outcome } = await installPromptRef.current.userChoice;
+      if (outcome === 'accepted') installPromptRef.current = null;
+      return;
+    }
+    setShowInstall(true);
+  }
 
   useEffect(() => {
     if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission);
@@ -881,15 +923,7 @@ export default function Home() {
             )}
           </button>
           {showInstallBtn && (
-            <button onClick={async () => {
-              if (installPromptRef.current) {
-                installPromptRef.current.prompt();
-                const { outcome } = await installPromptRef.current.userChoice;
-                if (outcome === 'accepted') installPromptRef.current = null;
-              } else if (isIOS) {
-                setShowInstall(v => !v);
-              }
-            }} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 10, height: 38, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', cursor: 'pointer', boxShadow: '0 2px 12px rgba(99,102,241,0.35)' }} title="Instalar en pantalla de inicio">
+            <button onClick={instalarApp} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', border: 'none', borderRadius: 10, height: 38, display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px', cursor: 'pointer', boxShadow: '0 2px 12px rgba(99,102,241,0.35)' }} title="Instalar en pantalla de inicio">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M12 6v8M9 11l3 3 3-3"/></svg>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap' }}>Instalar</span>
             </button>
@@ -918,6 +952,9 @@ export default function Home() {
         );
       })()}
 
+      {session?.user?.id && (
+        <InvitacionInstalar userId={session.user.id} mostrar={showInstallBtn} onVer={instalarApp} />
+      )}
       {session?.user?.id && licStatus !== 'solo_lectura' && (
         <InvitacionRecordatorios userId={session.user.id} onCambio={() => { if (typeof Notification !== 'undefined') setNotifPerm(Notification.permission); }} />
       )}
@@ -935,7 +972,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>Instalar MiCaja</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>Seguí estos pasos en Safari</div>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{isIOS ? 'Seguí estos pasos en Safari' : 'Seguí estos pasos en Chrome'}</div>
                 </div>
               </div>
               <button onClick={() => setShowInstall(false)} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.5)', width: 28, height: 28, borderRadius: 8, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>✕</button>
@@ -947,16 +984,21 @@ export default function Home() {
 
             <div style={{ marginBottom: 12 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8 }}>
-                <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(165,180,252,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>🍎</div>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc' }}>iPhone / iPad (Safari)</span>
+                <div style={{ width: 22, height: 22, borderRadius: 6, background: 'rgba(165,180,252,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>{isIOS ? '🍎' : '🤖'}</div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc' }}>{isIOS ? 'iPhone / iPad (Safari)' : 'Android (Chrome)'}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                {[
+                {(isIOS ? [
                   { n: 1, text: 'Abrí esta página en', bold: 'Safari' },
                   { n: 2, text: 'Tocá el ícono', bold: '⬆ Compartir', sub: '(cuadrado con flecha, en la barra de abajo)' },
                   { n: 3, text: 'Elegí', bold: '"Agregar a pantalla de inicio"' },
                   { n: 4, text: 'Tocá', bold: '"Agregar"', sub: '(arriba a la derecha)' },
-                ].map(s => (
+                ] : [
+                  { n: 1, text: 'Abrí esta página en', bold: 'Chrome' },
+                  { n: 2, text: 'Tocá el menú', bold: '⋮', sub: '(tres puntos, arriba a la derecha)' },
+                  { n: 3, text: 'Elegí', bold: '"Agregar a pantalla principal"', sub: 'o "Instalar app"' },
+                  { n: 4, text: 'Confirmá con', bold: '"Instalar"' },
+                ]).map(s => (
                   <div key={s.n} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                     <span style={{ minWidth: 20, height: 20, borderRadius: 6, background: 'rgba(165,180,252,0.15)', color: '#a5b4fc', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{s.n}</span>
                     <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.5 }}>{s.text} <b style={{ color: '#fff' }}>{s.bold}</b>{s.sub ? <span style={{ color: 'rgba(255,255,255,0.35)' }}> {s.sub}</span> : ''}</span>
