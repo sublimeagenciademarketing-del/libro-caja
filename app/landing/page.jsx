@@ -160,6 +160,70 @@ FEATURES.push(
   },
 );
 
+// Confianza: qué guardamos y qué no. Todo lo dicho acá es cierto hoy.
+const SEGURIDAD = [
+  {
+    title: 'Sin tarjetas ni datos bancarios',
+    desc: 'MiCaja no tiene ningún lugar donde cargar un número de tarjeta, una cuenta bancaria o una clave de banco. No se piden para probar, ni para pagar, ni dentro del app. Solo anotás montos y descripciones que vos elegís.',
+  },
+  {
+    title: 'Tu cuenta es solo tuya',
+    desc: 'Cada usuario ve únicamente sus datos: la base tiene reglas que impiden que uno vea los de otro. Tu contraseña se guarda cifrada y la conexión es siempre segura (HTTPS).',
+  },
+  {
+    title: 'Plataformas serias',
+    desc: 'MiCaja corre sobre Supabase y Vercel, la misma infraestructura que usan miles de empresas en el mundo. Como no guardamos tarjetas ni claves bancarias, no hay nada que un ladrón pueda usar.',
+  },
+  {
+    title: 'Te vas cuando quieras',
+    desc: 'Si un día no querés seguir, escribinos y borramos tu cuenta con todo lo que cargaste. Sin permanencia ni letra chica.',
+  },
+];
+
+const TESTIMONIOS = [
+  { nombre: 'Andrea', rol: 'Tienda de ropa', texto: 'Era justo lo que estaba buscando: simple y fácil de usar. En dos minutos ya tenía cargados mis gastos fijos y sabía cuánto me quedaba del mes.' },
+  { nombre: 'Marcos', rol: 'Trabaja por cuenta propia', texto: 'Me gustó cómo se ve y que me avise antes de que venza algo. Pedí un par de cosas, como los recordatorios, y las agregaron.' },
+  { nombre: 'Lorena', rol: 'Cobra en dólares', texto: 'Necesitaba anotar aparte lo que cobro en dólares y lo hicieron. Lo mejor es poder hablar directo con la persona que hace el app.' },
+];
+
+const PREGUNTAS = [
+  { q: '¿Es gratis?', a: `Sí, ${DIAS_PRUEBA} días con todas las funciones y sin tarjeta. Después, si te sirve, cuesta ₲ 80.000 por año, un solo pago.` },
+  { q: '¿Qué datos me piden?', a: 'Solo un email y una contraseña para entrar. Ni tarjeta, ni cuenta bancaria, ni documento. Dentro del app anotás lo que vos quieras: montos y descripciones.' },
+  { q: '¿Alguien más puede ver mis números?', a: 'No. Cada usuario ve solo lo suyo. La base de datos tiene reglas que impiden ver datos de otra persona.' },
+  { q: '¿Se puede hackear?', a: 'Ningún sistema serio promete un 100 %, y desconfiá del que lo haga. MiCaja usa la misma infraestructura que miles de apps en el mundo, con la conexión cifrada y los datos separados por usuario. Y como no guardamos tarjetas ni claves bancarias, no hay nada que un ladrón pueda usar.' },
+  { q: '¿Funciona en iPhone y Android?', a: 'Sí, en los dos. Se instala en la pantalla de inicio como cualquier app y también funciona desde el navegador.' },
+  { q: '¿Y si cambio de celular?', a: 'Entrás con tu email y tu contraseña desde el nuevo y está todo. Nada se guarda solo en el teléfono.' },
+  { q: '¿Necesita internet?', a: 'Sí. Así tus datos quedan siempre guardados y los ves igual desde cualquier celular.' },
+  { q: '¿Cómo pago y cómo cancelo?', a: 'Cuando terminan los días de prueba, nos escribís por WhatsApp y lo activamos con una transferencia. Si un año no renovás, no pasa nada: tus datos quedan guardados en modo solo lectura.' },
+];
+
+// Pregunta desplegable (una abierta a la vez).
+function Pregunta({ q, a, abierta, onToggle }) {
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${abierta ? 'rgba(165,180,252,0.35)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14, overflow: 'hidden' }}>
+      <button type="button" onClick={onToggle} aria-expanded={abierta}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '14px 16px', background: 'none', border: 'none', color: '#fff', fontFamily: 'inherit', fontSize: 14, fontWeight: 700, textAlign: 'left', cursor: 'pointer' }}>
+        <span>{q}</span>
+        <span aria-hidden="true" style={{ color: '#a5b4fc', fontSize: 18, lineHeight: 1, transform: abierta ? 'rotate(45deg)' : 'none', transition: 'transform .2s', flexShrink: 0 }}>+</span>
+      </button>
+      {abierta && (
+        <div style={{ padding: '0 16px 14px', fontSize: 13, color: 'rgba(255,255,255,0.55)', lineHeight: 1.65 }}>{a}</div>
+      )}
+    </div>
+  );
+}
+
+function Preguntas() {
+  const [abierta, setAbierta] = useState(null);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {PREGUNTAS.map((p, i) => (
+        <Pregunta key={p.q} q={p.q} a={p.a} abierta={abierta === i} onToggle={() => setAbierta(abierta === i ? null : i)} />
+      ))}
+    </div>
+  );
+}
+
 const PLAN_ITEMS = [
   'Acceso completo a todas las funciones',
   `${DIAS_PRUEBA} días de prueba gratuita`,
@@ -388,6 +452,76 @@ export default function LandingPage() {
               </div>
             </Reveal>
           </div>
+        </section>
+
+        {/* SEGURIDAD */}
+        <section style={{ padding: '0 20px 56px', maxWidth: 560, margin: '0 auto' }}>
+          <Reveal>
+            <h2 style={{ fontSize: 22, fontWeight: 800, textAlign: 'center', marginBottom: 8, letterSpacing: '-0.02em' }}>Tus datos, seguros</h2>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '0 0 24px' }}>Lo que guardamos, lo que no, y por qué podés quedarte tranquilo.</p>
+          </Reveal>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {SEGURIDAD.map((s, i) => (
+              <Reveal key={s.title} delay={i * 70} y={18}>
+                <div className="mc-card" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '14px 16px' }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(52,211,153,0.15)', border: '1px solid rgba(52,211,153,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+                  </div>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{s.title}</div>
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>{s.desc}</div>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        {/* QUIÉN ESTÁ DETRÁS */}
+        <section style={{ padding: '0 20px 56px', maxWidth: 560, margin: '0 auto' }}>
+          <Reveal>
+            <div className="mc-card" style={{ background: 'linear-gradient(160deg,rgba(99,102,241,0.14),rgba(139,92,246,0.06))', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 22, padding: '24px 22px', textAlign: 'center' }}>
+              <img src="/luis.png" alt="Luis Carlos, creador de MiCaja" width={112} height={112}
+                style={{ width: 112, height: 112, borderRadius: '50%', objectFit: 'cover', border: '3px solid rgba(165,180,252,0.5)', boxShadow: '0 10px 30px rgba(99,102,241,0.35)', marginBottom: 14, background: '#1e293b' }} />
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Quién está detrás</div>
+              <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 12 }}>Hola, soy Luis Carlos González</div>
+              <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, margin: 0 }}>
+                Soy de Santa Rita, tengo 29 años y hace cuatro trabajo en marketing con mi agencia, Sublime.
+                MiCaja nació en casa: la hice para ordenar las cuentas de mi esposa y las mías, y hoy la uso todos los días también para mi empresa.
+                Cada mejora sale de lo que me piden los usuarios, y el soporte lo doy yo mismo por WhatsApp. Si tenés una duda, me escribís y te respondo.
+              </p>
+            </div>
+          </Reveal>
+        </section>
+
+        {/* TESTIMONIOS */}
+        <section style={{ padding: '0 20px 56px', maxWidth: 560, margin: '0 auto' }}>
+          <Reveal>
+            <h2 style={{ fontSize: 22, fontWeight: 800, textAlign: 'center', marginBottom: 8, letterSpacing: '-0.02em' }}>Lo que dicen</h2>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '0 0 24px' }}>Comentarios de quienes ya lo usan.</p>
+          </Reveal>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {TESTIMONIOS.map((t, i) => (
+              <Reveal key={t.nombre} delay={i * 80} y={18}>
+                <div className="mc-card" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: '16px 18px' }}>
+                  <div style={{ color: '#fbbf24', fontSize: 13, letterSpacing: 2, marginBottom: 8 }}>★★★★★</div>
+                  <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)', lineHeight: 1.65, margin: '0 0 10px' }}>“{t.texto}”</p>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}><b style={{ color: '#a5b4fc' }}>{t.nombre}</b> · {t.rol}</div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </section>
+
+        {/* PREGUNTAS FRECUENTES */}
+        <section style={{ padding: '0 20px 56px', maxWidth: 560, margin: '0 auto' }}>
+          <Reveal>
+            <h2 style={{ fontSize: 22, fontWeight: 800, textAlign: 'center', marginBottom: 8, letterSpacing: '-0.02em' }}>Preguntas frecuentes</h2>
+            <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', margin: '0 0 24px' }}>Tocá una pregunta para ver la respuesta.</p>
+          </Reveal>
+          <Reveal delay={80}>
+            <Preguntas />
+          </Reveal>
         </section>
 
         {/* PRICING */}
