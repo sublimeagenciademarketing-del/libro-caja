@@ -191,6 +191,7 @@ const PREGUNTAS = [
   { q: '¿Qué datos me piden?', a: 'Solo un email y una contraseña para entrar. Ni tarjeta, ni cuenta bancaria, ni documento. Dentro del app anotás lo que vos quieras: montos y descripciones.' },
   { q: '¿Alguien más puede ver mis números?', a: 'No. Cada usuario ve solo lo suyo. La base de datos tiene reglas que impiden ver datos de otra persona.' },
   { q: '¿Se puede hackear?', a: 'Ningún sistema serio promete un 100 %, y desconfiá del que lo haga. MiCaja usa la misma infraestructura que miles de apps en el mundo, con la conexión cifrada y los datos separados por usuario. Y como no guardamos tarjetas ni claves bancarias, no hay nada que un ladrón pueda usar.' },
+  { q: '¿Puedo anotar dólares o reales?', a: 'Sí. Además de tus guaraníes, activás dólares y reales desde tu perfil. Cada moneda se lleva por separado, sin conversiones ni mezclas, y en el inicio deslizás el balance para ver cada una.' },
   { q: '¿Funciona en iPhone y Android?', a: 'Sí, en los dos. Se instala en la pantalla de inicio como cualquier app y también funciona desde el navegador.' },
   { q: '¿Y si cambio de celular?', a: 'Entrás con tu email y tu contraseña desde el nuevo y está todo. Nada se guarda solo en el teléfono.' },
   { q: '¿Necesita internet?', a: 'Sí. Así tus datos quedan siempre guardados y los ves igual desde cualquier celular.' },
@@ -221,6 +222,198 @@ function Preguntas() {
         <Pregunta key={p.q} q={p.q} a={p.a} abierta={abierta === i} onToggle={() => setAbierta(abierta === i ? null : i)} />
       ))}
     </div>
+  );
+}
+
+// Panel de ejemplo: cuenta simple y cuenta doble, alternando solas cada unos
+// segundos. Se frena mientras la persona lo toca y se puede deslizar a mano.
+const DEMO_INTERVALO = 6500;
+const DEMO_ETIQUETAS = ['Ejemplo · cuenta simple', 'Ejemplo · cuenta doble (negocio + personal)'];
+
+const demoTxt = { fontSize: 11, color: 'rgba(255,255,255,0.4)' };
+const demoNum = (color, size = 12, weight = 700) => ({ fontSize: size, fontWeight: weight, color, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' });
+
+function DemoBalance({ activo }) {
+  return (
+    <div style={{ textAlign: 'center', marginBottom: 18 }}>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Balance total</div>
+      <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
+        <Counter to={8750000} active={activo} prefix="₲ " />
+      </div>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3 }}>Acumulado de todos los meses</div>
+    </div>
+  );
+}
+
+function DemoSimple({ activo }) {
+  return (
+    <>
+      <DemoBalance activo={activo} />
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center' }}>Este mes</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Ingresos</span>
+            <span style={demoNum('#34d399', 14, 800)}><Counter to={3500000} active={activo} prefix="₲ " sign="+" /></span>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Gastos</span>
+            <span style={demoNum('#f87171', 14, 800)}><Counter to={1200000} active={activo} prefix="₲ " sign="−" /></span>
+          </div>
+        </div>
+        <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '11px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>En caja · este mes</span>
+          <span style={demoNum('#34d399', 14, 800)}><Counter to={2300000} active={activo} prefix="₲ " sign="+" /></span>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 8 }}>Proyección del mes</div>
+      <div style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14, padding: '12px 14px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={demoTxt}>Por cobrar</span>
+          <span style={demoNum('#34d399')}><Counter to={800000} active={activo} prefix="₲ " sign="+" /></span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={demoTxt}>Por pagar</span>
+          <span style={demoNum('#f87171')}><Counter to={350000} active={activo} prefix="₲ " sign="−" /></span>
+        </div>
+        <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
+          <span style={demoTxt}>Resultado esperado</span>
+          <span style={demoNum('#34d399', 12, 800)}><Counter to={2750000} active={activo} prefix="₲ " sign="+" /></span>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Cuenta doble: dos cuentas separadas ("Negocio" y "Personal"), como en el app.
+const DEMO_CUENTAS = [
+  { label: 'Negocio',  color: '#4facfe', ing: 6200000, gas: 2900000, caja: 3300000, cobrar: 1800000, pagar: 950000, result: 4150000 },
+  { label: 'Personal', color: '#a78bfa', ing: 3500000, gas: 2100000, caja: 1400000, cobrar: 0,       pagar: 650000, result: 750000 },
+];
+
+function DemoDoble({ activo }) {
+  return (
+    <>
+      <DemoBalance activo={activo} />
+      <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center' }}>Este mes</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {DEMO_CUENTAS.map(c => (
+            <div key={c.label} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: c.color, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{c.label}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                <span style={demoTxt}>Ingresos</span>
+                <span style={demoNum('#34d399', 11)}><Counter to={c.ing} active={activo} prefix="₲ " sign="+" /></span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
+                <span style={demoTxt}>Gastos</span>
+                <span style={demoNum('#f87171', 11)}><Counter to={c.gas} active={activo} prefix="₲ " sign="−" /></span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {DEMO_CUENTAS.map(c => (
+            <div key={c.label} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>En caja · este mes</span>
+              <span style={{ fontSize: 10, color: c.color, fontWeight: 600 }}>{c.label}</span>
+              <span style={demoNum('#34d399', 14, 800)}><Counter to={c.caja} active={activo} prefix="₲ " sign="+" /></span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 8 }}>Proyección del mes</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        {DEMO_CUENTAS.map(c => (
+          <div key={c.label} style={{ flex: 1, minWidth: 0, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: c.color, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{c.label}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+              <span style={demoTxt}>Por cobrar</span>
+              <span style={demoNum('#34d399', 11)}><Counter to={c.cobrar} active={activo} prefix="₲ " sign="+" /></span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+              <span style={demoTxt}>Por pagar</span>
+              <span style={demoNum('#f87171', 11)}><Counter to={c.pagar} active={activo} prefix="₲ " sign="−" /></span>
+            </div>
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
+              <span style={demoNum('#34d399', 12, 800)}><Counter to={c.result} active={activo} prefix="₲ " sign="+" /></span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function DemoPaneles({ activo, reduced }) {
+  const [idx, setIdx] = useState(0);
+  const [pausa, setPausa] = useState(false);
+  const [alto, setAlto] = useState('auto');
+  const panel0 = useRef(null);
+  const panel1 = useRef(null);
+  const gesto = useRef(null);
+
+  // Cambio automático mientras el panel está a la vista y nadie lo toca.
+  useEffect(() => {
+    if (!activo || pausa) return;
+    const t = setInterval(() => setIdx(i => (i + 1) % 2), DEMO_INTERVALO);
+    return () => clearInterval(t);
+  }, [activo, pausa]);
+
+  // La tarjeta toma la altura del panel que se muestra (con transición).
+  useEffect(() => {
+    const medir = () => { const h = (idx === 0 ? panel0 : panel1).current?.offsetHeight; if (h) setAlto(h); };
+    medir();
+    window.addEventListener('resize', medir);
+    return () => window.removeEventListener('resize', medir);
+  }, [idx]);
+
+  const trans = reduced ? 'none' : `transform .6s ${EASE}`;
+  return (
+    <>
+      <div
+        data-anim
+        onMouseEnter={() => setPausa(true)}
+        onMouseLeave={() => setPausa(false)}
+        onTouchStart={(e) => { setPausa(true); gesto.current = e.touches[0].clientX; }}
+        onTouchEnd={(e) => {
+          setPausa(false);
+          if (gesto.current === null) return;
+          const dx = e.changedTouches[0].clientX - gesto.current;
+          gesto.current = null;
+          if (Math.abs(dx) > 40) setIdx(i => (i + (dx < 0 ? 1 : -1) + 2) % 2);
+        }}
+        style={{
+          background: 'linear-gradient(160deg,#1e2d45,#0f1a2e)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 22,
+          padding: '22px 20px',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          opacity: activo || reduced ? 1 : 0,
+          transform: activo || reduced ? 'none' : 'translateY(28px) scale(.97)',
+          transition: reduced ? 'none' : `opacity .8s ${EASE}, transform .8s ${EASE}`,
+          animation: reduced || !activo ? 'none' : 'mc-float 7s ease-in-out infinite 1s',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ height: alto, transition: reduced ? 'none' : `height .6s ${EASE}`, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', width: '100%', transform: `translateX(-${idx * 100}%)`, transition: trans, alignItems: 'flex-start' }}>
+            <div ref={panel0} style={{ width: '100%', flexShrink: 0 }} aria-hidden={idx !== 0}><DemoSimple activo={activo && idx === 0} /></div>
+            <div ref={panel1} style={{ width: '100%', flexShrink: 0 }} aria-hidden={idx !== 1}><DemoDoble activo={activo && idx === 1} /></div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 14 }} aria-label="Cambiar ejemplo">
+        {[0, 1].map(i => (
+          <button key={i} type="button" onClick={() => setIdx(i)} aria-label={DEMO_ETIQUETAS[i]}
+            style={{ width: i === idx ? 18 : 7, height: 7, borderRadius: 4, border: 'none', padding: 0, cursor: 'pointer', background: i === idx ? '#a5b4fc' : 'rgba(255,255,255,0.2)', transition: 'width .25s, background .25s' }} />
+        ))}
+      </div>
+      <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.28)', marginTop: 8 }}>{DEMO_ETIQUETAS[idx]}</div>
+    </>
   );
 }
 
@@ -295,7 +488,7 @@ export default function LandingPage() {
 
           <Reveal delay={170}>
             <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.5)', lineHeight: 1.7, margin: '0 0 22px' }}>
-              MiCaja registra tus ingresos, gastos, cuotas, cobros y deudas, te avisa en el teléfono antes de que algo venza y te muestra cómo termina tu mes. Todo desde tu celular.
+              MiCaja registra tus ingresos, gastos, cuotas, cobros y deudas, te avisa en el teléfono antes de que algo venza y te muestra cómo termina tu mes. En guaraníes y, si lo necesitás, también en dólares y reales. Todo desde tu celular.
             </p>
           </Reveal>
 
@@ -330,65 +523,9 @@ export default function LandingPage() {
           </Reveal>
         </section>
 
-        {/* MOCKUP */}
+        {/* MOCKUP: alterna cuenta simple y cuenta doble */}
         <section ref={mockRef} style={{ padding: '0 20px 52px', maxWidth: 400, margin: '0 auto' }}>
-          <div
-            data-anim
-            style={{
-              background: 'linear-gradient(160deg,#1e2d45,#0f1a2e)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 22,
-              padding: '22px 20px',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-              opacity: mockIn || reduced ? 1 : 0,
-              transform: mockIn || reduced ? 'none' : 'translateY(28px) scale(.97)',
-              transition: reduced ? 'none' : `opacity .8s ${EASE}, transform .8s ${EASE}`,
-              animation: reduced || !mockIn ? 'none' : 'mc-float 7s ease-in-out infinite 1s',
-            }}
-          >
-            <div style={{ textAlign: 'center', marginBottom: 18 }}>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Balance total</div>
-              <div style={{ fontSize: 32, fontWeight: 900, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
-                <Counter to={8750000} active={mockIn} prefix="₲ " />
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3 }}>Acumulado de todos los meses</div>
-            </div>
-
-            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center' }}>Este mes</div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <div style={{ flex: 1, background: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.2)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Ingresos</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}><Counter to={3500000} active={mockIn} prefix="₲ " sign="+" /></span>
-                </div>
-                <div style={{ flex: 1, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Gastos</span>
-                  <span style={{ fontSize: 14, fontWeight: 800, color: '#f87171', fontVariantNumeric: 'tabular-nums' }}><Counter to={1200000} active={mockIn} prefix="₲ " sign="−" /></span>
-                </div>
-              </div>
-              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '11px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 600 }}>En caja · este mes</span>
-                <span style={{ fontSize: 14, fontWeight: 800, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}><Counter to={2300000} active={mockIn} prefix="₲ " sign="+" /></span>
-              </div>
-            </div>
-
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: 'center', marginBottom: 8 }}>Proyección del mes</div>
-            <div style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', borderRadius: 14, padding: '12px 14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por cobrar</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}><Counter to={800000} active={mockIn} prefix="₲ " sign="+" /></span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Por pagar</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#f87171', fontVariantNumeric: 'tabular-nums' }}><Counter to={350000} active={mockIn} prefix="₲ " sign="−" /></span>
-              </div>
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8, display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Resultado esperado</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}><Counter to={2750000} active={mockIn} prefix="₲ " sign="+" /></span>
-              </div>
-            </div>
-          </div>
-          <div style={{ textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.22)', marginTop: 12 }}>Ejemplo ilustrativo</div>
+          <DemoPaneles activo={mockIn} reduced={reduced} />
         </section>
 
         {/* FEATURES */}

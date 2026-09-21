@@ -3,8 +3,9 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas } from '../../lib/config';
-import { MONEDAS, esGuarani } from '../../lib/monedas';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos } from '../../lib/config';
+import { MONEDAS, esGuarani, fmtMoneda, leerMonto } from '../../lib/monedas';
+import Convertidor, { BotonConvertir } from '../../components/Convertidor';
 import { estadoPush, activarPush, desuscribirPush } from '../../lib/push-cliente';
 import { sumarMeses } from '../../lib/fechas';
 import { hoyISO, deISO, mesDe, enMes, sumarDias, siguiente, proximoDe, esRecurrente, estadoDe, textoEstado, ocurrenciasEnMes, cadenciaEnMes, alPagar, alRevertir } from '../../lib/recurrencia';
@@ -17,6 +18,48 @@ const etiquetaCuenta = (valor, cfg) =>
   cfg.single || mismaCuenta(valor, cfg.c1) ? cfg.l1 : cfg.l2;
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtD = (raw) => (raw ? raw.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '');
+
+// Monedas en los módulos (gastos fijos, cuotas, cobros, deudas, metas). Cada
+// ítem guarda su moneda; los cargados antes no la tienen y valen en guaraníes.
+const monedaDe = (i) => (i?.moneda && MONEDAS[i.moneda] ? i.moneda : 'PYG');
+const simboloDe = (m) => (m === 'PYG' ? '₲' : MONEDAS[m].simbolo);
+// Qué monedas puede elegir la persona en un formulario (null = solo guaraníes, sin selector).
+const opcionesMonedaDe = (cfg, email) => (puedeMonedasModulos(email) && (cfg?.monedas || []).length ? ['PYG', ...cfg.monedas] : null);
+const enMoneda = (filtro) => (i) => filtro === 'todas' || monedaDe(i) === filtro;
+// Texto de un monto que la persona escribe → valor a guardar + texto a mostrar.
+const montoEscrito = (texto, moneda) => leerMonto(texto, moneda);
+// Texto para mostrar un monto guardado dentro de un campo editable.
+const montoParaEditar = (n, moneda) => leerMonto(String(n ?? '').replace('.', ','), moneda).display;
+// "₲ 1.200.000 · US$ 300": suma por moneda de una lista (solo las monedas con algo).
+function textoPorMoneda(items, montoDe) {
+  const t = {};
+  for (const i of items) { const m = monedaDe(i); t[m] = (t[m] || 0) + (Number(montoDe(i)) || 0); }
+  const partes = ['PYG', ...Object.keys(MONEDAS)].filter(m => t[m]).map(m => fmtMoneda(t[m], m));
+  return partes.length ? partes.join(' · ') : fmt(0);
+}
+// Etiqueta de un campo de monto con el selector de moneda a la derecha.
+function LabelMonto({ texto = 'Monto', moneda = 'PYG', opciones, onChange }) {
+  return (
+    <label style={opciones ? { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 } : undefined}>
+      <span>{texto} ({simboloDe(moneda)})</span>
+      {opciones && (
+        <span className="moneda-pills">
+          {opciones.map(m => <button type="button" key={m} className={moneda === m ? 'on' : ''} onClick={() => onChange(m)}>{simboloDe(m)}</button>)}
+        </span>
+      )}
+    </label>
+  );
+}
+// Filtro de una lista por moneda (solo con monedas activadas).
+function FiltroMoneda({ value, onChange, opciones }) {
+  if (!opciones) return null;
+  return (
+    <div className="filters" style={{ marginBottom: 12 }}>
+      <button type="button" className={value === 'todas' ? 'active' : ''} onClick={() => onChange('todas')}>Todos</button>
+      {opciones.map(m => <button type="button" key={m} className={value === m ? 'active' : ''} onClick={() => onChange(m)}>{simboloDe(m)}</button>)}
+    </div>
+  );
+}
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
 
 function getUserConfig(email) {
@@ -56,6 +99,47 @@ const TABS = [
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
+// Listas largas: lo ya terminado (cobrado, pagado, cuotas completas) se muestra
+// solo de los últimos meses y "Ver más" trae más antiguos. Cada toque suma seis
+// meses, y siempre destapa al menos lo siguiente que había oculto.
+const VER_MAS_INICIAL = 2, VER_MAS_PASO = 6;
+// Primer día del mes que abre una ventana de `meses` meses hasta hoy ('AAAA-MM-01').
+function desdeMeses(meses) {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (meses - 1));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+// Meses de ventana necesarios para que una fecha quede adentro.
+function mesesHasta(fecha) {
+  const hoy = new Date(); const [y, m] = fecha.split('-').map(Number);
+  return (hoy.getFullYear() - y) * 12 + (hoy.getMonth() + 1 - m) + 1;
+}
+// Fecha invertida para ordenar de más nueva a más vieja con una comparación de texto.
+const fechaInvertida = (f) => String(99999999 - Number((f || '0000-00-00').replace(/-/g, ''))).padStart(8, '0');
+function useVerMas(habilitado) {
+  const [meses, setMeses] = useState(VER_MAS_INICIAL);
+  const desde = desdeMeses(meses);
+  // Separa lo visible de lo oculto según la fecha de cada ítem (sin fecha = visible).
+  const recortar = (lista, fechaDe) => {
+    if (!habilitado) return { visibles: lista, ocultos: [] };
+    const visibles = [], ocultos = [];
+    for (const i of lista) { const f = fechaDe(i); (!f || f >= desde ? visibles : ocultos).push(i); }
+    return { visibles, ocultos };
+  };
+  const verMas = (ocultos, fechaDe) => {
+    const masNueva = ocultos.map(fechaDe).filter(Boolean).sort().pop();
+    setMeses(m => Math.max(m + VER_MAS_PASO, masNueva ? mesesHasta(masNueva) : 0));
+  };
+  return { recortar, verMas };
+}
+function BotonVerMas({ ocultos, onClick, texto = 'Ver más antiguos' }) {
+  if (!ocultos) return null;
+  return (
+    <li className="mas-ver-mas">
+      <button type="button" onClick={(e) => { e.stopPropagation(); onClick(); }}>{texto} ({ocultos})</button>
+    </li>
+  );
+}
+
 // Un ítem recurrente vale tantas veces como ocurrencias tenga en el mes;
 // los de una sola vez, una vez si vencen en el mes. Devuelve {monto, cuenta}.
 function expandirGastosDelMes(gastos, y, m0, hoy, esMesActual = true) {
@@ -71,11 +155,16 @@ function expandirCobrosDelMes(cobros, y, m0, hoy, mesStart, mesEnd, esMesActual 
 }
 
 /* ─── RESUMEN ANUAL ─── */
-function Resumen({ userId, cfg }) {
+function Resumen({ userId, userEmail, cfg }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [projection, setProjection] = useState(null);
+  const [mesAbierto, setMesAbierto] = useState(null);
+  const [porMoneda, setPorMoneda] = useState({});
+  const [compromisos, setCompromisos] = useState(null);
   const anio = new Date().getFullYear();
+  const ampliado = puedeResumenAmpliado(userEmail);
+  const monedasActivas = cfg.monedas || [];
 
   useEffect(() => {
     async function load() {
@@ -97,9 +186,24 @@ function Resumen({ userId, cfg }) {
         const gas1 = del_mes.filter(t => t.tipo === 'gasto' && (cfg.single || mismaCuenta(t.cuenta, cfg.c1))).reduce((s,t) => s + t.monto, 0);
         const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s,t) => s + t.monto, 0);
         const gas2 = del_mes.filter(t => t.tipo === 'gasto' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s,t) => s + t.monto, 0);
-        return { mes: i, ing, gas, bal: ing - gas, bal1: ing1 - gas1, bal2: ing2 - gas2, tiene: del_mes.length > 0 };
+        return { mes: i, ing, gas, bal: ing - gas, ing1, gas1, ing2, gas2, bal1: ing1 - gas1, bal2: ing2 - gas2, tiene: del_mes.length > 0 };
       });
       setData(meses);
+
+      // Monedas extra: el mismo resumen por mes, solo de las monedas activadas con movimientos en el año.
+      const pm = {};
+      for (const mo of monedasActivas) {
+        const txm = (txs || []).filter(t => t.moneda === mo);
+        if (!txm.length) continue;
+        pm[mo] = Array.from({ length: 12 }, (_, i) => {
+          const key = `${anio}-${String(i + 1).padStart(2, '0')}`;
+          const del = txm.filter(t => t.fecha && t.fecha.startsWith(key));
+          const ing = del.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + Number(t.monto || 0), 0);
+          const gas = del.filter(t => t.tipo === 'gasto').reduce((s, t) => s + Number(t.monto || 0), 0);
+          return { mes: i, ing, gas, bal: ing - gas, tiene: del.length > 0 };
+        });
+      }
+      setPorMoneda(pm);
 
       // proyección mes actual
       const now = new Date();
@@ -108,18 +212,36 @@ function Resumen({ userId, cfg }) {
       const lastDay = new Date(y, mo + 1, 0).getDate();
       const mesStart = `${y}-${mStr}-01`, mesEnd = `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`;
       const [r1, r2, r3, r4] = await Promise.all([
-        supabase.from('receivables').select('monto, cuenta, estado, frecuencia, fecha_esperada, proximo_vencimiento, cobrado_fecha, activo').eq('user_id', userId),
-        supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
-        supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-        supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, pagado_fecha, frecuencia, dia_vencimiento, proximo_vencimiento').eq('user_id', userId).eq('activo', true),
+        supabase.from('receivables').select('monto, cuenta, estado, frecuencia, fecha_esperada, proximo_vencimiento, cobrado_fecha, activo, moneda').eq('user_id', userId),
+        supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
+        supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+        supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, pagado_fecha, frecuencia, dia_vencimiento, proximo_vencimiento, moneda').eq('user_id', userId).eq('activo', true),
       ]);
       const hoy = hoyISO();
+      // El resumen es en guaraníes: lo cargado en otra moneda queda afuera.
+      const enGs = (r) => monedaDe(r) === 'PYG';
+      if (r2.data) r2.data = r2.data.filter(enGs);
+      if (r3.data) r3.data = r3.data.filter(r => monedaDe(r.installment_purchases) === 'PYG');
+      if (r4.data) r4.data = r4.data.filter(enGs);
       setProjection({
-        cobros: expandirCobrosDelMes(r1.data || [], y, mo, hoy, mesStart, mesEnd),
+        cobros: expandirCobrosDelMes((r1.data || []).filter(enGs), y, mo, hoy, mesStart, mesEnd),
         deudas: (r2.data || []).filter(r => r.estado !== 'pagado'),
         cuotas: (r3.data || []).filter(r => r.installment_purchases),
         gastos: expandirGastosDelMes(r4.data || [], y, mo, hoy),
       });
+
+      // Compromisos del mes: todo lo que vence este mes sí o sí (gastos fijos,
+      // cuotas, tarjetas y deudas con fecha), pagado o no, para compararlo con
+      // los ingresos. Se cuentan todas las ocurrencias del mes, no solo las pendientes.
+      const [{ data: cuotasMes }, { data: tarjetasMes }] = await Promise.all([
+        supabase.from('installments').select('monto, installment_purchases!inner(user_id, moneda)').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+        supabase.from('card_expenses').select('monto').eq('user_id', userId).gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
+      ]);
+      const fijos = (r4.data || []).flatMap(g => cadenciaEnMes(g, y, mo, hoy).map(() => g.monto || 0)).reduce((s, n) => s + n, 0);
+      const cuotas = (cuotasMes || []).filter(c => monedaDe(c.installment_purchases) === 'PYG').reduce((s, c) => s + (c.monto || 0), 0);
+      const tarjetas = (tarjetasMes || []).reduce((s, c) => s + (c.monto || 0), 0);
+      const deudas = (r2.data || []).reduce((s, d) => s + ((d.monto_total || 0) - (d.monto_pagado || 0)), 0);
+      setCompromisos({ fijos, cuotas, tarjetas, deudas, total: fijos + cuotas + tarjetas + deudas });
 
       setLoading(false);
     }
@@ -143,6 +265,36 @@ function Resumen({ userId, cfg }) {
   const proj1 = data[mesActual] ? calcProjC(cfg.c1, data[mesActual].bal1) : null;
   const proj2 = (!cfg.single && data[mesActual]) ? calcProjC(cfg.c2, data[mesActual].bal2) : null;
 
+  // Resumen ampliado: este mes contra el anterior, promedios y compromisos.
+  const esteMes = data[mesActual] || null;
+  const mesAnterior = mesActual > 0 ? data[mesActual - 1] : null;
+  const variacion = (ahora, antes) => (antes > 0 ? Math.round(((ahora - antes) / antes) * 100) : null);
+  const mesesCerrados = data.filter(m => m.tiene && m.mes < mesActual);
+  const promedioBase = mesesCerrados.length ? mesesCerrados : mesesConDatos;
+  const promIng = promedioBase.length ? promedioBase.reduce((s, m) => s + m.ing, 0) / promedioBase.length : 0;
+  const promGas = promedioBase.length ? promedioBase.reduce((s, m) => s + m.gas, 0) / promedioBase.length : 0;
+  // Compromisos contra ingresos: los del mes si ya hay, si no el promedio mensual.
+  const ingresoReferencia = esteMes && esteMes.ing > 0 ? esteMes.ing : promIng;
+  const pctComprometido = compromisos && ingresoReferencia > 0 ? Math.round((compromisos.total / ingresoReferencia) * 100) : null;
+  const signo = (n) => (n >= 0 ? '+' : '−');
+  const Variacion = ({ v, alReves = false }) => {
+    if (v === null) return null;
+    const bueno = alReves ? v <= 0 : v >= 0;
+    return <span style={{ fontSize: 11, fontWeight: 700, color: bueno ? '#34d399' : '#f87171', marginLeft: 6 }}>{v > 0 ? '↑' : v < 0 ? '↓' : '='} {Math.abs(v)} %</span>;
+  };
+  const filaDetalle = (etiqueta, ing, gas) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '4px 0' }}>
+      <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{etiqueta}</span>
+      <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        <span style={{ color: '#34d399', fontWeight: 700 }}>+{fmt(ing)}</span>
+        <span style={{ color: 'rgba(255,255,255,0.3)', margin: '0 6px' }}>·</span>
+        <span style={{ color: '#f87171', fontWeight: 700 }}>−{fmt(gas)}</span>
+      </span>
+    </div>
+  );
+  const tarjeta = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '14px 16px', marginBottom: 10 };
+  const titulo = { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 };
+
   return (
     <div>
       <div className="mas-section-header">
@@ -150,6 +302,61 @@ function Resumen({ userId, cfg }) {
           <div className="mas-section-title">Resumen {anio}</div>
         </div>
       </div>
+
+      {ampliado && !loading && esteMes && esteMes.tiene && (
+        <div style={tarjeta}>
+          <div style={titulo}>Este mes · {MESES[mesActual]}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>Ingresos</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#34d399', fontVariantNumeric: 'tabular-nums' }}>+{fmt(esteMes.ing)}<Variacion v={mesAnterior?.tiene ? variacion(esteMes.ing, mesAnterior.ing) : null} /></span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>Gastos</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#f87171', fontVariantNumeric: 'tabular-nums' }}>−{fmt(esteMes.gas)}<Variacion v={mesAnterior?.tiene ? variacion(esteMes.gas, mesAnterior.gas) : null} alReves /></span>
+            </div>
+            <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '2px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: '#fff', fontWeight: 700 }}>En caja</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: esteMes.bal >= 0 ? '#34d399' : '#f87171', fontVariantNumeric: 'tabular-nums' }}>{signo(esteMes.bal)}{fmt(esteMes.bal)}</span>
+            </div>
+            {mesAnterior?.tiene && (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Comparado con {MESES[mesActual - 1].toLowerCase()}: {signo(mesAnterior.bal)}{fmt(mesAnterior.bal)} en caja.</div>
+            )}
+          </div>
+          {compromisos && compromisos.total > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Compromisos del mes</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', fontVariantNumeric: 'tabular-nums' }}>{fmt(compromisos.total)}{pctComprometido !== null ? ` · ${pctComprometido} % de tus ingresos` : ''}</span>
+              </div>
+              {pctComprometido !== null && (
+                <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 8, overflow: 'hidden' }}>
+                  <div style={{ width: `${Math.min(pctComprometido, 100)}%`, height: '100%', borderRadius: 3, background: pctComprometido > 80 ? '#f87171' : pctComprometido > 50 ? '#fbbf24' : '#34d399', transition: 'width .4s' }} />
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 6, lineHeight: 1.5 }}>
+                {[compromisos.fijos > 0 && `gastos fijos ${fmt(compromisos.fijos)}`, compromisos.cuotas > 0 && `cuotas ${fmt(compromisos.cuotas)}`, compromisos.tarjetas > 0 && `tarjetas ${fmt(compromisos.tarjetas)}`, compromisos.deudas > 0 && `deudas ${fmt(compromisos.deudas)}`].filter(Boolean).join(' · ')}
+                {esteMes.ing === 0 && promIng > 0 ? ' · comparado con tu ingreso promedio' : ''}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {ampliado && !loading && promedioBase.length > 0 && (
+        <div style={tarjeta}>
+          <div style={titulo}>Promedio mensual · {promedioBase.length} {promedioBase.length === 1 ? 'mes' : 'meses'}{mesesCerrados.length ? ' cerrados' : ''}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[{ l: 'Ingresos', v: promIng, c: '#34d399', s: '+' }, { l: 'Gastos', v: promGas, c: '#f87171', s: '−' }, { l: 'Te queda', v: promIng - promGas, c: promIng - promGas >= 0 ? '#34d399' : '#f87171', s: signo(promIng - promGas) }].map(x => (
+              <div key={x.l} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '8px 10px' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{x.l}</div>
+                <div style={{ fontSize: 12, fontWeight: 800, color: x.c, marginTop: 3, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.s}{fmt(x.v)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {proj1 !== null && (
         <div className="donut-cuentas-bal" style={{ marginBottom: 12, padding: '10px 0' }}>
@@ -168,21 +375,47 @@ function Resumen({ userId, cfg }) {
         <div className="empty">No hay movimientos registrados en {anio}.</div>
       ) : (
         <ul className="resumen-list">
-          {data.filter(m => m.tiene).map(m => (
-            <li key={m.mes}>
-              <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
-              <div className="resumen-cuentas">
-                {!cfg.single ? (
-                  <>
-                    <span className={m.bal1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {m.bal1 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal1))}</span>
-                    <span className={m.bal2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {m.bal2 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal2))}</span>
-                  </>
-                ) : (
-                  <span className={m.bal >= 0 ? 'pos' : 'neg'}>{m.bal >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal))}</span>
-                )}
+          {ampliado && <li className="mas-grupo" style={{ padding: '0 4px' }}>Por mes · tocá uno para ver el detalle</li>}
+          {data.filter(m => m.tiene).map(m => {
+            const abierto = ampliado && mesAbierto === m.mes;
+            const previo = m.mes > 0 && data[m.mes - 1]?.tiene ? data[m.mes - 1] : null;
+            return (
+            <li key={m.mes} style={ampliado ? { flexDirection: 'column', alignItems: 'stretch', cursor: 'pointer' } : undefined}
+              onClick={ampliado ? () => setMesAbierto(abierto ? null : m.mes) : undefined}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
+                <div className="resumen-cuentas">
+                  {!cfg.single ? (
+                    <>
+                      <span className={m.bal1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {m.bal1 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal1))}</span>
+                      <span className={m.bal2 >= 0 ? 'pos' : 'neg'}>{cfg.l2}: {m.bal2 >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal2))}</span>
+                    </>
+                  ) : (
+                    <span className={m.bal >= 0 ? 'pos' : 'neg'}>{m.bal >= 0 ? '+' : '−'}{fmt(Math.abs(m.bal))}</span>
+                  )}
+                </div>
+                {ampliado && <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{abierto ? '▲' : '▼'}</span>}
               </div>
+              {abierto && (
+                <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                  {cfg.single ? filaDetalle('Ingresos · Gastos', m.ing, m.gas) : (
+                    <>
+                      {filaDetalle(cfg.l1, m.ing1, m.gas1)}
+                      {filaDetalle(cfg.l2, m.ing2, m.gas2)}
+                      {filaDetalle('Total', m.ing, m.gas)}
+                    </>
+                  )}
+                  {previo && (
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: '2px 4px', alignItems: 'center' }}>
+                      Contra {MESES[m.mes - 1].toLowerCase()}: ingresos<Variacion v={variacion(m.ing, previo.ing)} />
+                      <span style={{ margin: '0 4px' }}>·</span> gastos<Variacion v={variacion(m.gas, previo.gas)} alReves />
+                    </div>
+                  )}
+                </div>
+              )}
             </li>
-          ))}
+            );
+          })}
           <li className="resumen-total">
             <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
             {!cfg.single && (
@@ -197,6 +430,35 @@ function Resumen({ userId, cfg }) {
           </li>
         </ul>
       )}
+
+      {/* Monedas extra activadas con movimientos en el año: mismo resumen, aparte. */}
+      {ampliado && !loading && Object.entries(porMoneda).map(([mo, meses]) => {
+        const total = meses.reduce((s, m) => s + m.bal, 0);
+        const f = (n) => fmtMoneda(Math.abs(n), mo);
+        return (
+          <div key={mo} style={{ marginTop: 18 }}>
+            <div style={{ ...titulo, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', color: '#fff', borderRadius: 7, padding: '2px 7px', fontSize: 10 }}>{MONEDAS[mo].simbolo}</span>
+              En {MONEDAS[mo].nombre.toLowerCase()} · {anio}
+            </div>
+            <ul className="resumen-list">
+              {meses.filter(m => m.tiene).map(m => (
+                <li key={m.mes}>
+                  <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
+                  <div className="resumen-cuentas" style={{ alignItems: 'flex-end' }}>
+                    <span className={m.bal >= 0 ? 'pos' : 'neg'}>{signo(m.bal)}{f(m.bal)}</span>
+                    <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>+{f(m.ing)} · −{f(m.gas)}</span>
+                  </div>
+                </li>
+              ))}
+              <li className="resumen-total">
+                <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
+                <div className={`resumen-bal ${total >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 16, fontWeight: 800 }}>{signo(total)}{f(total)}</div>
+              </li>
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -205,7 +467,9 @@ function Resumen({ userId, cfg }) {
 function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const hoy = hoyISO();
-  const FORM_VACIO = { descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', proximo_vencimiento: '', cuenta: cfg.c1, frecuencia: 'mensual' };
+  const FORM_VACIO = { descripcion: '', monto: '', montoDisplay: '', dia_vencimiento: '', proximo_vencimiento: '', cuenta: cfg.c1, frecuencia: 'mensual', moneda: 'PYG' };
+  const opcionesMoneda = opcionesMonedaDe(cfg, userEmail);
+  const [filtroMoneda, setFiltroMoneda] = useState('todas');
   const [gastos, setGastos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(FORM_VACIO);
@@ -229,8 +493,8 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   useEffect(() => { load(); }, [load]);
 
   function handleMonto(e) {
-    const raw = e.target.value.replace(/\D/g, '');
-    setForm(f => ({ ...f, monto: raw, montoDisplay: fmtD(raw) }));
+    const { valor, display } = montoEscrito(e.target.value, form.moneda);
+    setForm(f => ({ ...f, monto: valor, montoDisplay: display }));
   }
 
   // Al cambiar de frecuencia, el campo que aparece arranca con un valor coherente.
@@ -265,6 +529,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       monto: parseFloat(form.monto),
       cuenta: form.cuenta,
       frecuencia: form.frecuencia || 'mensual',
+      moneda: form.moneda || 'PYG',
       ...fechas,
     });
     if (error) { alert(`No se pudo guardar: ${error.message}`); return; }
@@ -294,6 +559,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       monto: parseFloat(editForm.monto),
       cuenta: editForm.cuenta,
       frecuencia: editForm.frecuencia || 'mensual',
+      moneda: editForm.moneda || 'PYG',
       ...fechas,
     }).eq('id', g.id);
     if (error) { alert(`No se pudo guardar: ${error.message}`); return; }
@@ -309,7 +575,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     const anteriorEstado = { proximo_vencimiento: g.proximo_vencimiento, pagado_fecha: g.pagado_fecha, pagado_mes: g.pagado_mes };
     const { error: e1 } = await supabase.from('recurring_expenses').update(nuevo).eq('id', g.id);
     if (e1) { alert(`No se pudo registrar el pago: ${e1.message}`); return; }
-    const { error: e2 } = await supabase.from('transactions').insert({ user_id: userId, monto: g.monto, tipo: 'gasto', fecha: hoy, categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta });
+    const { error: e2 } = await supabase.from('transactions').insert({ user_id: userId, monto: g.monto, tipo: 'gasto', fecha: hoy, categoria: `Gasto fijo: ${g.descripcion}`, cuenta: g.cuenta, moneda: monedaDe(g) });
     if (e2) {
       await supabase.from('recurring_expenses').update(anteriorEstado).eq('id', g.id);
       alert(`No se pudo anotar el movimiento: ${e2.message}`);
@@ -330,8 +596,9 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 
   const h = deISO(hoy); const anio = h.getFullYear(), mes0 = h.getMonth();
   const activos = gastos.filter(g => g.activo);
-  const totalMes = activos.reduce((s, g) => s + cadenciaEnMes(g, anio, mes0, hoy).length * g.monto, 0);
-  const pendienteMes = activos.reduce((s, g) => s + ocurrenciasEnMes(g, anio, mes0, hoy, { incluirAtrasadas: true }).length * g.monto, 0);
+  // Totales del encabezado, moneda por moneda (nunca se suman entre sí).
+  const totalMes = textoPorMoneda(activos, g => cadenciaEnMes(g, anio, mes0, hoy).length * g.monto);
+  const pendienteMes = textoPorMoneda(activos, g => ocurrenciasEnMes(g, anio, mes0, hoy, { incluirAtrasadas: true }).length * g.monto);
 
   const FRECUENCIAS = ['mensual', 'quincenal', 'semanal'];
   const etiquetaFrec = (f) => f.charAt(0).toUpperCase() + f.slice(1);
@@ -356,7 +623,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       <div className="mas-section-header">
         <div>
           <div className="mas-section-title">Gastos Fijos Recurrentes</div>
-          <div className="mas-section-sub">Este mes: <span style={{ color: '#f87171', fontWeight: 700 }}>{fmt(totalMes)}</span> · Pendiente: <span style={{ color: '#fbbf24', fontWeight: 700 }}>{fmt(pendienteMes)}</span></div>
+          <div className="mas-section-sub">Este mes: <span style={{ color: '#f87171', fontWeight: 700 }}>{totalMes}</span> · Pendiente: <span style={{ color: '#fbbf24', fontWeight: 700 }}>{pendienteMes}</span></div>
         </div>
         {!soloLectura && (
           <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
@@ -386,8 +653,8 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
           </div>
           <div className="row">
             <div className="field">
-              <label>Monto (₲)</label>
-              <input type="text" inputMode="numeric" className="num" value={form.montoDisplay} onChange={handleMonto} placeholder="0" required />
+              <LabelMonto moneda={form.moneda} opciones={opcionesMoneda} onChange={m => setForm(f => ({ ...f, moneda: m, monto: '', montoDisplay: '' }))} />
+              <input type="text" inputMode={form.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={form.montoDisplay} onChange={handleMonto} placeholder={form.moneda === 'PYG' ? '0' : '0,00'} required />
             </div>
             {campoFecha(form, setForm)}
           </div>
@@ -406,13 +673,14 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
         </form>
       )}
 
+      {!loading && gastos.length > 0 && <FiltroMoneda value={filtroMoneda} onChange={setFiltroMoneda} opciones={opcionesMoneda} />}
       {loading ? (
         <div className="mas-loading">Cargando...</div>
       ) : gastos.length === 0 ? (
         <div className="empty">No hay gastos fijos registrados.</div>
       ) : (
         <ul className="mas-list">
-          {gastos.map(g => {
+          {gastos.filter(enMoneda(filtroMoneda)).map(g => {
             const isExp = expandedId === g.id;
             const est = estadoDe(g, hoy);
             const alDia = est.etiqueta === 'al_dia';
@@ -434,7 +702,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                       {' · '}<span style={{ color: g.activo ? colorEstado[est.etiqueta] : 'rgba(255,255,255,0.4)', fontWeight: 600 }}>{g.activo ? textoEstado(est) : 'Pausado'}</span>
                     </div>
                   </div>
-                  <div className="amt" style={{ flexShrink: 0, color: alDia ? '#34d399' : '#f87171' }}>{fmt(g.monto)}</div>
+                  <div className="amt" style={{ flexShrink: 0, color: alDia ? '#34d399' : '#f87171' }}>{fmtMoneda(g.monto, monedaDe(g))}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
                 </div>
                 {isExp && !soloLectura && (
@@ -445,7 +713,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                         <div className="row"><div className="field"><label>Descripción</label><input type="text" value={editForm.descripcion} onChange={e => setEditForm(f => ({ ...f, descripcion: e.target.value }))} /></div></div>
                         <div className="row"><div className="field"><label>Frecuencia</label><div className="toggle">{FRECUENCIAS.map(fr => <button key={fr} type="button" className={editForm.frecuencia === fr ? 'active sublime' : ''} onClick={() => cambiarFrecuencia(setEditForm, editForm, fr)}>{etiquetaFrec(fr)}</button>)}</div></div></div>
                         <div className="row">
-                          <div className="field"><label>Monto (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto ? String(editForm.monto).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({ ...f, monto: e.target.value.replace(/\D/g, '') }))} /></div>
+                          <div className="field"><LabelMonto moneda={editForm.moneda} opciones={opcionesMoneda} onChange={m => setEditForm(f => ({ ...f, moneda: m, monto: '', montoDisplay: '' }))} /><input type="text" inputMode={editForm.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={editForm.montoDisplay ?? ''} onChange={e => { const { valor, display } = montoEscrito(e.target.value, editForm.moneda); setEditForm(f => ({ ...f, monto: valor, montoDisplay: display })); }} /></div>
                           {campoFecha(editForm, setEditForm)}
                         </div>
                         <div className="row"><div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({ ...f, cuenta: v }))} cfg={cfg} /></div></div>
@@ -465,7 +733,7 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                             onClick={() => handleRevertir(g)}>↩ Revertir</button>
                         )}
                         <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                          onClick={() => { setEditingId(g.id); setEditForm({ descripcion: g.descripcion, monto: String(Math.round(g.monto)), dia_vencimiento: String(g.dia_vencimiento || ''), proximo_vencimiento: proximoDe(g, hoy) || '', cuenta: g.cuenta, frecuencia: frec }); }}>✎</button>
+                          onClick={() => { setEditingId(g.id); setEditForm({ descripcion: g.descripcion, monto: String(g.monto), montoDisplay: montoParaEditar(g.monto, monedaDe(g)), moneda: monedaDe(g), dia_vencimiento: String(g.dia_vencimiento || ''), proximo_vencimiento: proximoDe(g, hoy) || '', cuenta: g.cuenta, frecuencia: frec }); }}>✎</button>
                         <button className="del" title={g.activo ? 'Pausar' : 'Activar'} onClick={() => handleToggle(g.id, g.activo)} style={{ fontSize: 13 }}>{g.activo ? '⏸' : '▶'}</button>
                         <button className="del" onClick={() => handleDelete(g.id)} title="Eliminar">✕</button>
                       </div>
@@ -482,8 +750,12 @@ function GastosFijos({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 }
 
 /* ─── CUOTAS ─── */
+// Fecha de la última cuota de una compra (o la primera si no hay cuotas cargadas).
+const fechaFinCompra = (p, cuotas) => (cuotas || []).map(c => c.fecha_vencimiento).sort().pop() || p.fecha_primera_cuota || null;
+
 function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
+  const { recortar, verMas } = useVerMas(puedeVerMas(userEmail));
   const [purchases, setPurchases] = useState([]);
   const [expanded, setExpanded] = useState(null);
   const [installments, setInstallments] = useState({});
@@ -495,8 +767,10 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     descripcion: '', monto: '', montoDisplay: '',
     total_cuotas: '', dia_vencimiento: '',
     fecha_primera_cuota: hoyISO(),
-    cuenta: cfg.c1, frecuencia: 'mensual',
+    cuenta: cfg.c1, frecuencia: 'mensual', moneda: 'PYG',
   });
+  const opcionesMoneda = opcionesMonedaDe(cfg, userEmail);
+  const [filtroMoneda, setFiltroMoneda] = useState('todas');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -511,7 +785,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     setInstallments(porCompra);
     const clave = (p) => {
       const pend = (porCompra[p.id] || []).filter(c => c.estado === 'pendiente').map(c => c.fecha_vencimiento).sort();
-      return pend.length ? '1' + pend[0] : '9' + (p.fecha_primera_cuota || '');
+      return pend.length ? '1' + pend[0] : '9' + fechaInvertida(fechaFinCompra(p, porCompra[p.id]));
     };
     setPurchases(compras.sort((a, b) => (clave(a) < clave(b) ? -1 : 1)));
     setLoading(false);
@@ -530,9 +804,14 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     if (!installments[id]) loadInstallments(id);
   }
 
+  // Compra terminada: su "fecha" es la de la última cuota (para esconder las viejas).
+  const terminada = (p) => (installments[p.id] || []).length > 0 && !(installments[p.id] || []).some(c => c.estado === 'pendiente');
+  const fechaTerminada = (p) => (terminada(p) ? fechaFinCompra(p, installments[p.id]) : null);
+  const { visibles: comprasVisibles, ocultos: comprasOcultas } = recortar(purchases, fechaTerminada);
+
   function handleMonto(e) {
-    const raw = e.target.value.replace(/\D/g, '');
-    setForm(f => ({ ...f, monto: raw, montoDisplay: fmtD(raw) }));
+    const { valor, display } = montoEscrito(e.target.value, form.moneda);
+    setForm(f => ({ ...f, monto: valor, montoDisplay: display }));
   }
 
   async function handleAdd(e) {
@@ -552,6 +831,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       fecha_primera_cuota: form.fecha_primera_cuota,
       cuenta: form.cuenta,
       frecuencia: form.frecuencia || 'mensual',
+      moneda: form.moneda || 'PYG',
     }).select().single();
 
     if (error || !purchase) return;
@@ -580,7 +860,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     }
     await supabase.from('installments').insert(cuotas);
 
-    setForm({ descripcion: '', monto: '', montoDisplay: '', total_cuotas: '', dia_vencimiento: '', fecha_primera_cuota: hoyISO(), cuenta: cfg.c1, frecuencia: 'mensual' });
+    setForm({ descripcion: '', monto: '', montoDisplay: '', total_cuotas: '', dia_vencimiento: '', fecha_primera_cuota: hoyISO(), cuenta: cfg.c1, frecuencia: 'mensual', moneda: 'PYG' });
     setShowForm(false);
     load();
   }
@@ -599,6 +879,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
         fecha: hoyISO(),
         categoria: `${purchase.descripcion} — Cuota ${cuota.numero_cuota}/${purchase.total_cuotas}`,
         cuenta: purchase.cuenta,
+        moneda: monedaDe(purchase),
       });
     }
 
@@ -702,8 +983,8 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
           </div>
           <div className="row">
             <div className="field">
-              <label>Monto por cuota (₲)</label>
-              <input type="text" inputMode="numeric" className="num" value={form.montoDisplay} onChange={handleMonto} placeholder="0" required />
+              <LabelMonto texto="Monto por cuota" moneda={form.moneda} opciones={opcionesMoneda} onChange={m => setForm(f => ({ ...f, moneda: m, monto: '', montoDisplay: '' }))} />
+              <input type="text" inputMode={form.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={form.montoDisplay} onChange={handleMonto} placeholder={form.moneda === 'PYG' ? '0' : '0,00'} required />
             </div>
             <div className="field" style={{ maxWidth: 80 }}>
               <label>Cuotas</label>
@@ -744,20 +1025,21 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
           </div>
           {form.monto && form.total_cuotas && (
             <div className="mas-preview">
-              Total: {fmt(parseFloat(form.monto) * parseInt(form.total_cuotas || 0))} en {form.total_cuotas} cuotas de {fmt(parseFloat(form.monto))}
+              Total: {fmtMoneda(parseFloat(form.monto) * parseInt(form.total_cuotas || 0), form.moneda)} en {form.total_cuotas} cuotas de {fmtMoneda(parseFloat(form.monto), form.moneda)}
             </div>
           )}
           <button className="add-btn" type="submit">Guardar y generar cuotas</button>
         </form>
       )}
 
+      {!loading && purchases.length > 0 && <FiltroMoneda value={filtroMoneda} onChange={setFiltroMoneda} opciones={opcionesMoneda} />}
       {loading ? (
         <div className="mas-loading">Cargando...</div>
       ) : purchases.length === 0 ? (
         <div className="empty">No hay compras en cuotas registradas.</div>
       ) : (
         <ul className="mas-list">
-          {purchases.map(p => {
+          {comprasVisibles.filter(enMoneda(filtroMoneda)).map(p => {
             const cuotas = installments[p.id] || [];
             const pagadas = cuotas.filter(c => c.estado === 'pagado').length;
             const pct = p.total_cuotas ? Math.round((pagadas / p.total_cuotas) * 100) : 0;
@@ -767,14 +1049,14 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   <div className="mas-item-icon" style={{ background: 'rgba(192,132,252,0.15)', border: '1px solid rgba(192,132,252,0.3)' }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{p.descripcion}</div>
-                    <div className="sub">{pagadas}/{p.total_cuotas} cuotas · {fmt(p.monto_por_cuota)}{p.frecuencia === 'semanal' ? '/sem.' : p.frecuencia === 'quincenal' ? '/quinc.' : '/mes'}</div>
+                    <div className="sub">{pagadas}/{p.total_cuotas} cuotas · {fmtMoneda(p.monto_por_cuota, monedaDe(p))}{p.frecuencia === 'semanal' ? '/sem.' : p.frecuencia === 'quincenal' ? '/quinc.' : '/mes'}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button className="del" style={{ fontSize: 13 }} onClick={() => toggleExpand(p.id)} title="Ver cuotas">
                       {expanded === p.id ? '▲' : '▼'}
                     </button>
                     {!soloLectura && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                      onClick={() => { setEditingId(p.id); setEditForm({ descripcion: p.descripcion, cuenta: p.cuenta || cfg.c1, frecuencia: p.frecuencia || 'mensual', dia_vencimiento: p.dia_vencimiento || '', fecha_primera_cuota: p.fecha_primera_cuota || '', monto: String(Math.round(p.monto_por_cuota || 0)), total_cuotas: String(p.total_cuotas || '') }); }}>✎</button>}
+                      onClick={() => { setEditingId(p.id); setEditForm({ descripcion: p.descripcion, cuenta: p.cuenta || cfg.c1, frecuencia: p.frecuencia || 'mensual', dia_vencimiento: p.dia_vencimiento || '', fecha_primera_cuota: p.fecha_primera_cuota || '', monto: String(p.monto_por_cuota || 0), montoDisplay: montoParaEditar(p.monto_por_cuota || 0, monedaDe(p)), moneda: monedaDe(p), total_cuotas: String(p.total_cuotas || '') }); }}>✎</button>}
                     {!soloLectura && <button className="del" onClick={() => handleDeletePurchase(p.id)} title="Eliminar">✕</button>}
                   </div>
                 </div>
@@ -782,7 +1064,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div className="row"><div className="field"><label>Descripción</label><input type="text" value={editForm.descripcion} onChange={e => setEditForm(f => ({...f, descripcion: e.target.value}))} /></div></div>
                     <div className="row">
-                      <div className="field"><label>Monto por cuota (₲)</label><input type="text" inputMode="numeric" className="num" value={fmtD(editForm.monto)} onChange={e => setEditForm(f => ({...f, monto: e.target.value.replace(/\D/g, '')}))} /></div>
+                      <div className="field"><label>Monto por cuota ({simboloDe(editForm.moneda || 'PYG')})</label><input type="text" inputMode={(editForm.moneda || 'PYG') === 'PYG' ? 'numeric' : 'decimal'} className="num" value={editForm.montoDisplay ?? ''} onChange={e => { const { valor, display } = montoEscrito(e.target.value, editForm.moneda || 'PYG'); setEditForm(f => ({ ...f, monto: valor, montoDisplay: display })); }} /></div>
                       <div className="field" style={{ maxWidth: 110 }}><label>Cuotas</label><input type="number" inputMode="numeric" min="1" max="120" value={editForm.total_cuotas} onChange={e => setEditForm(f => ({...f, total_cuotas: e.target.value.replace(/\D/g, '')}))} /></div>
                     </div>
                     <div className="row">
@@ -808,7 +1090,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                       return pendientes.length > 0 ? (
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 4px 6px', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 8 }}>
                           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>{pendientes.length} cuota{pendientes.length !== 1 ? 's' : ''} pendiente{pendientes.length !== 1 ? 's' : ''}</span>
-                          <span style={{ fontSize: 13, fontWeight: 700, color: '#f87171' }}>Total restante: {fmt(totalRestante)}</span>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: '#f87171' }}>Total restante: {fmtMoneda(totalRestante, monedaDe(p))}</span>
                         </div>
                       ) : null;
                     })()}
@@ -817,7 +1099,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                       <li key={c.id} className={c.estado === 'pagado' ? 'pagado' : ''}>
                         <span className="cuota-num">#{c.numero_cuota}</span>
                         <span className="cuota-fecha">{fmtFecha(c.fecha_vencimiento)}</span>
-                        <span className="cuota-monto">{fmt(c.monto)}</span>
+                        <span className="cuota-monto">{fmtMoneda(c.monto, monedaDe(p))}</span>
                         {c.estado === 'pendiente' ? (
                           !soloLectura && <button className="cuota-pay-btn" onClick={() => handlePagarCuota(c.id, p.id)}>✓ Pagar</button>
                         ) : (
@@ -842,6 +1124,7 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
               </li>
             );
           })}
+          <BotonVerMas ocultos={comprasOcultas.length} onClick={() => verMas(comprasOcultas, fechaTerminada)} texto="Ver compras terminadas anteriores" />
         </ul>
       )}
     </div>
@@ -856,7 +1139,12 @@ const TITULO_GRUPO_COBRO = { '1': 'Repetitivos', '5': 'Una sola vez', '8': 'Paus
 function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const hoy = hoyISO();
-  const FORM_VACIO = { cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1, frecuencia: 'una_vez' };
+  const { recortar, verMas } = useVerMas(puedeVerMas(userEmail));
+  // Un cobro de una sola vez ya cobrado se ubica por la fecha en que se cobró.
+  const fechaCobrado = (i) => (grupoCobro(i) === '9' ? (i.cobrado_fecha || i.fecha_esperada) : null);
+  const FORM_VACIO = { cliente: '', monto: '', montoDisplay: '', fecha_esperada: '', forma_pago: 'transferencia', cuenta: cfg.c1, frecuencia: 'una_vez', moneda: 'PYG' };
+  const opcionesMoneda = opcionesMonedaDe(cfg, userEmail);
+  const [filtroMoneda, setFiltroMoneda] = useState('todas');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -870,10 +1158,13 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     const { data } = await supabase.from('receivables').select('*').eq('user_id', userId);
     // Orden: repetitivos arriba (vuelven cada período), una sola vez después,
     // pausados y cobrados al final. Dentro de cada grupo, el que vence antes primero.
-    const clave = (i) => grupoCobro(i) + (esRecurrente(i) ? (proximoDe(i, hoyISO()) || '9999') : (i.fecha_esperada || '9999'));
+    // Los cobrados van del más reciente al más viejo.
+    const clave = (i) => grupoCobro(i) === '9' ? '9' + fechaInvertida(i.cobrado_fecha || i.fecha_esperada)
+      : grupoCobro(i) + (esRecurrente(i) ? (proximoDe(i, hoyISO()) || '9999') : (i.fecha_esperada || '9999'));
     setItems((data || []).sort((a, b) => (clave(a) < clave(b) ? -1 : 1)));
     setLoading(false);
   }, [userId]);
+  const { visibles: itemsVisibles, ocultos: itemsOcultos } = recortar(items, fechaCobrado);
 
   useEffect(() => { load(); }, [load]);
 
@@ -898,6 +1189,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       forma_pago: form.forma_pago,
       cuenta: form.cuenta,
       frecuencia: frec,
+      moneda: form.moneda || 'PYG',
     });
     if (error) { alert(`No se pudo guardar: ${error.message}`); return; }
     setForm(FORM_VACIO);
@@ -920,7 +1212,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     if (e1) { alert(`No se pudo marcar el cobro: ${e1.message}`); return; }
     const { error: e2 } = await supabase.from('transactions').insert({
       user_id: userId, monto: item.monto, tipo: 'ingreso', fecha: hoy,
-      categoria: `Cobro: ${item.cliente}`, cuenta: item.cuenta || cfg.c1,
+      categoria: `Cobro: ${item.cliente}`, cuenta: item.cuenta || cfg.c1, moneda: monedaDe(item),
     });
     if (e2) {
       await supabase.from('receivables').update(previo).eq('id', item.id);
@@ -967,6 +1259,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       forma_pago: editForm.forma_pago,
       cuenta: editForm.cuenta,
       frecuencia: frec,
+      moneda: editForm.moneda || 'PYG',
     };
     if (frec !== 'una_vez') {
       // La fecha cargada pasa a ser el ancla y el próximo cobro solo si el usuario la cambió
@@ -987,10 +1280,10 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   }
 
   const h = deISO(hoy); const anio = h.getFullYear(), mes0 = h.getMonth();
-  const pendiente = items.filter(i => i.activo !== false).reduce((s, i) => {
-    if (!esRecurrente(i)) return s + (i.estado === 'pendiente' ? i.monto : 0);
-    return s + ocurrenciasEnMes(i, anio, mes0, hoy, { incluirAtrasadas: true }).length * i.monto;
-  }, 0);
+  const pendiente = textoPorMoneda(items.filter(i => i.activo !== false), i => {
+    if (!esRecurrente(i)) return i.estado === 'pendiente' ? i.monto : 0;
+    return ocurrenciasEnMes(i, anio, mes0, hoy, { incluirAtrasadas: true }).length * i.monto;
+  });
 
   const colorEstado = { vencido: '#f87171', hoy: '#fbbf24', pendiente: '#34d399', al_dia: '#34d399', sin_fecha: 'rgba(255,255,255,0.4)' };
 
@@ -1015,8 +1308,8 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       </div>
       <div className="row">
         <div className="field">
-          <label>Monto (₲)</label>
-          <input type="text" inputMode="numeric" className="num" value={f.montoDisplay ?? (f.monto ? String(f.monto).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '')} onChange={e => { const raw = e.target.value.replace(/\D/g, ''); setter({ ...f, monto: raw, montoDisplay: fmtD(raw) }); }} placeholder="0" required />
+          <LabelMonto moneda={f.moneda || 'PYG'} opciones={opcionesMoneda} onChange={m => setter({ ...f, moneda: m, monto: '', montoDisplay: '' })} />
+          <input type="text" inputMode={(f.moneda || 'PYG') === 'PYG' ? 'numeric' : 'decimal'} className="num" value={f.montoDisplay ?? montoParaEditar(f.monto, f.moneda || 'PYG')} onChange={e => { const { valor, display } = montoEscrito(e.target.value, f.moneda || 'PYG'); setter({ ...f, monto: valor, montoDisplay: display }); }} placeholder={(f.moneda || 'PYG') === 'PYG' ? '0' : '0,00'} required />
         </div>
         <div className="field">
           <label>{f.frecuencia === 'una_vez' ? 'Fecha esperada' : 'Próximo cobro'}</label>
@@ -1054,7 +1347,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       <div className="mas-section-header">
         <div>
           <div className="mas-section-title">Cuentas por Cobrar</div>
-          <div className="mas-section-sub">Pendiente este mes: <span style={{ color: '#34d399', fontWeight: 700 }}>{fmt(pendiente)}</span></div>
+          <div className="mas-section-sub">Pendiente este mes: <span style={{ color: '#34d399', fontWeight: 700 }}>{pendiente}</span></div>
         </div>
         {!soloLectura && (
           <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
@@ -1065,16 +1358,17 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 
       {!soloLectura && showForm && formulario(form, setForm, handleAdd, 'Nuevo cobro pendiente', 'Guardar')}
 
+      {!loading && items.length > 0 && <FiltroMoneda value={filtroMoneda} onChange={setFiltroMoneda} opciones={opcionesMoneda} />}
       {loading ? <div className="mas-loading">Cargando...</div> : items.length === 0 ? (
         <div className="empty">No hay cobros registrados.</div>
       ) : (
         <ul className="mas-list">
-          {items.map((i, idx) => {
+          {itemsVisibles.filter(enMoneda(filtroMoneda)).map((i, idx, lista) => {
             const isExp = expandedId === i.id;
             const recurrente = esRecurrente(i);
             const pausado = i.activo === false;
             const grupo = grupoCobro(i);
-            const separador = (idx === 0 || grupoCobro(items[idx - 1]) !== grupo) && new Set(items.map(grupoCobro)).size > 1
+            const separador = (idx === 0 || grupoCobro(lista[idx - 1]) !== grupo) && new Set(items.map(grupoCobro)).size > 1
               ? <li key={'g' + grupo} className="mas-grupo">{TITULO_GRUPO_COBRO[grupo]}</li> : null;
             const est = recurrente ? estadoDe(i, hoy) : null;
             const cobradoUnaVez = !recurrente && i.estado === 'cobrado';
@@ -1093,7 +1387,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                     <div className="cat">{i.cliente}</div>
                     <div className="sub">{linea}</div>
                   </div>
-                  <div className="amt pos" style={{ flexShrink: 0 }}>{fmt(i.monto)}</div>
+                  <div className="amt pos" style={{ flexShrink: 0 }}>{fmtMoneda(i.monto, monedaDe(i))}</div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
                 </div>
                 {isExp && (
@@ -1116,7 +1410,7 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                               onClick={() => handleRevertir(i)}>↩ Revertir</button>
                           )}
                           {!cobradoUnaVez && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                            onClick={() => { setEditingId(i.id); setEditForm({ cliente: i.cliente, monto: String(Math.round(i.monto)), fecha_esperada: (recurrente ? proximoDe(i, hoy) : i.fecha_esperada) || '', forma_pago: i.forma_pago || 'transferencia', cuenta: i.cuenta || cfg.c1, frecuencia: i.frecuencia || 'una_vez' }); }}>✎</button>}
+                            onClick={() => { setEditingId(i.id); setEditForm({ cliente: i.cliente, monto: String(i.monto), montoDisplay: montoParaEditar(i.monto, monedaDe(i)), moneda: monedaDe(i), fecha_esperada: (recurrente ? proximoDe(i, hoy) : i.fecha_esperada) || '', forma_pago: i.forma_pago || 'transferencia', cuenta: i.cuenta || cfg.c1, frecuencia: i.frecuencia || 'una_vez' }); }}>✎</button>}
                           {recurrente && <button className="del" title={pausado ? 'Activar' : 'Pausar'} onClick={() => handleToggle(i)} style={{ fontSize: 13 }}>{pausado ? '▶' : '⏸'}</button>}
                           <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>
                         </div>}
@@ -1127,6 +1421,10 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
               </li>
             </Fragment>);
           })}
+          {itemsOcultos.length > 0 && !itemsVisibles.some(i => grupoCobro(i) === '9') && new Set(items.map(grupoCobro)).size > 1 && (
+            <li className="mas-grupo">{TITULO_GRUPO_COBRO['9']}</li>
+          )}
+          <BotonVerMas ocultos={itemsOcultos.length} onClick={() => verMas(itemsOcultos, fechaCobrado)} texto="Ver cobros anteriores" />
         </ul>
       )}
     </div>
@@ -1136,28 +1434,34 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 /* ─── DEUDAS ─── */
 function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
+  const { recortar, verMas } = useVerMas(puedeVerMas(userEmail));
+  const fechaPagada = (d) => (d.estado === 'pagado' ? (d.fecha_limite || (d.created_at || '').slice(0, 10) || null) : null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
-  const [form, setForm] = useState({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1 });
+  const [form, setForm] = useState({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1, moneda: 'PYG' });
+  const opcionesMoneda = opcionesMonedaDe(cfg, userEmail);
+  const [filtroMoneda, setFiltroMoneda] = useState('todas');
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('debts').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    // Orden: pendientes primero (la fecha límite más cercana arriba, sin fecha al final del grupo); pagadas al final.
-    const clave = (d) => (d.estado === 'pagado' ? '9' : '1') + (d.fecha_limite || '9999');
+    // Orden: pendientes primero (la fecha límite más cercana arriba, sin fecha al final del grupo);
+    // pagadas al final, de la más reciente a la más vieja.
+    const clave = (d) => (d.estado === 'pagado' ? '9' + fechaInvertida(d.fecha_limite || (d.created_at || '').slice(0, 10)) : '1' + (d.fecha_limite || '9999'));
     setItems((data || []).sort((a, b) => (clave(a) < clave(b) ? -1 : 1)));
     setLoading(false);
   }, [userId]);
+  const { visibles: itemsVisibles, ocultos: itemsOcultos } = recortar(items, fechaPagada);
 
   useEffect(() => { load(); }, [load]);
 
   function handleMonto(e) {
-    const raw = e.target.value.replace(/\D/g, '');
-    setForm(f => ({ ...f, monto_total: raw, montoDisplay: fmtD(raw) }));
+    const { valor, display } = montoEscrito(e.target.value, form.moneda);
+    setForm(f => ({ ...f, monto_total: valor, montoDisplay: display }));
   }
 
   async function handleAdd(e) {
@@ -1168,8 +1472,9 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       monto_total: parseFloat(form.monto_total),
       fecha_limite: form.fecha_limite || null,
       cuenta: form.cuenta,
+      moneda: form.moneda || 'PYG',
     });
-    setForm({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1 });
+    setForm({ acreedor: '', monto_total: '', montoDisplay: '', fecha_limite: '', cuenta: cfg.c1, moneda: 'PYG' });
     setShowForm(false);
     load();
   }
@@ -1182,7 +1487,7 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       await supabase.from('transactions').insert({
         user_id: userId, monto: item.monto_total - item.monto_pagado, tipo: 'gasto',
         fecha: hoyISO(),
-        categoria: `Pago deuda: ${item.acreedor}`, cuenta: item.cuenta || cfg.c1,
+        categoria: `Pago deuda: ${item.acreedor}`, cuenta: item.cuenta || cfg.c1, moneda: monedaDe(item),
       });
     }
     load();
@@ -1200,19 +1505,20 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       monto_total: parseFloat(editForm.monto_total),
       fecha_limite: editForm.fecha_limite || null,
       cuenta: editForm.cuenta,
+      moneda: editForm.moneda || 'PYG',
     }).eq('id', id);
     setEditingId(null);
     load();
   }
 
-  const totalDeuda = items.filter(i => i.estado === 'pendiente').reduce((s, i) => s + (i.monto_total - i.monto_pagado), 0);
+  const totalDeuda = textoPorMoneda(items.filter(i => i.estado === 'pendiente'), i => i.monto_total - i.monto_pagado);
 
   return (
     <div>
       <div className="mas-section-header">
         <div>
           <div className="mas-section-title">Deudas</div>
-          <div className="mas-section-sub">Total pendiente: <span style={{ color: '#f87171', fontWeight: 700 }}>{fmt(totalDeuda)}</span></div>
+          <div className="mas-section-sub">Total pendiente: <span style={{ color: '#f87171', fontWeight: 700 }}>{totalDeuda}</span></div>
         </div>
         {!soloLectura && (
           <button className="mas-add-btn" onClick={() => setShowForm(v => !v)}>
@@ -1232,8 +1538,8 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
           </div>
           <div className="row">
             <div className="field">
-              <label>Monto (₲)</label>
-              <input type="text" inputMode="numeric" className="num" value={form.montoDisplay} onChange={handleMonto} placeholder="0" required />
+              <LabelMonto moneda={form.moneda} opciones={opcionesMoneda} onChange={m => setForm(f => ({ ...f, moneda: m, monto_total: '', montoDisplay: '' }))} />
+              <input type="text" inputMode={form.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={form.montoDisplay} onChange={handleMonto} placeholder={form.moneda === 'PYG' ? '0' : '0,00'} required />
             </div>
             <div className="field">
               <label>Fecha límite</label>
@@ -1250,11 +1556,12 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
         </form>
       )}
 
+      {!loading && items.length > 0 && <FiltroMoneda value={filtroMoneda} onChange={setFiltroMoneda} opciones={opcionesMoneda} />}
       {loading ? <div className="mas-loading">Cargando...</div> : items.length === 0 ? (
         <div className="empty">No hay deudas registradas.</div>
       ) : (
         <ul className="mas-list">
-          {items.map(i => {
+          {itemsVisibles.filter(enMoneda(filtroMoneda)).map(i => {
             const isExp = expandedId === i.id;
             return (
               <li key={i.id} className={i.estado === 'pagado' ? 'inactive' : ''}
@@ -1268,7 +1575,7 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   </div>
                   {/* Pagada: se sigue viendo cuánto fue, en verde; pendiente: lo que falta. */}
                   <div className="amt neg" style={{ flexShrink: 0, ...(i.estado === 'pagado' ? { color: '#34d399' } : {}) }}>
-                    {fmt(i.estado === 'pagado' ? i.monto_total : i.monto_total - i.monto_pagado)}
+                    {fmtMoneda(i.estado === 'pagado' ? i.monto_total : i.monto_total - i.monto_pagado, monedaDe(i))}
                   </div>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{isExp ? '▲' : '▼'}</span>
                 </div>
@@ -1279,7 +1586,7 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                       <div>
                         <div className="row"><div className="field"><label>A quién le debo</label><input type="text" value={editForm.acreedor} onChange={e => setEditForm(f => ({...f, acreedor: e.target.value}))} /></div></div>
                         <div className="row">
-                          <div className="field"><label>Monto total (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto_total ? String(editForm.monto_total).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({...f, monto_total: e.target.value.replace(/\D/g, '')}))} /></div>
+                          <div className="field"><LabelMonto texto="Monto total" moneda={editForm.moneda} opciones={opcionesMoneda} onChange={m => setEditForm(f => ({ ...f, moneda: m, monto_total: '', montoDisplay: '' }))} /><input type="text" inputMode={editForm.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={editForm.montoDisplay ?? ''} onChange={e => { const { valor, display } = montoEscrito(e.target.value, editForm.moneda); setEditForm(f => ({ ...f, monto_total: valor, montoDisplay: display })); }} /></div>
                           <div className="field"><label>Fecha límite</label><input type="date" value={editForm.fecha_limite || ''} onChange={e => setEditForm(f => ({...f, fecha_limite: e.target.value}))} /></div>
                         </div>
                         <div className="row"><div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({...f, cuenta: v}))} cfg={cfg} /></div></div>
@@ -1308,7 +1615,7 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                               }}>↩ Revertir</button>
                           )}
                           {i.estado !== 'pagado' && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                            onClick={() => { setEditingId(i.id); setEditForm({ acreedor: i.acreedor, monto_total: String(Math.round(i.monto_total)), fecha_limite: i.fecha_limite || '', cuenta: i.cuenta || cfg.c1 }); }}>✎</button>}
+                            onClick={() => { setEditingId(i.id); setEditForm({ acreedor: i.acreedor, monto_total: String(i.monto_total), montoDisplay: montoParaEditar(i.monto_total, monedaDe(i)), moneda: monedaDe(i), fecha_limite: i.fecha_limite || '', cuenta: i.cuenta || cfg.c1 }); }}>✎</button>}
                           <button className="del" onClick={() => handleDelete(i.id)}>✕</button>
                         </div>}
                       </>
@@ -1318,6 +1625,7 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
               </li>
             );
           })}
+          <BotonVerMas ocultos={itemsOcultos.length} onClick={() => verMas(itemsOcultos, fechaPagada)} texto="Ver deudas pagadas anteriores" />
         </ul>
       )}
     </div>
@@ -1325,19 +1633,23 @@ function Deudas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
 }
 
 /* ─── METAS DE AHORRO ─── */
-function Metas({ userId, soloLectura = false }) {
+function Metas({ userId, userEmail, cfg, soloLectura = false }) {
+  const opcionesMoneda = opcionesMonedaDe(cfg, userEmail);
+  const [filtroMoneda, setFiltroMoneda] = useState('todas');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [aportarId, setAportarId] = useState(null);
   const [aporte, setAporte] = useState({ monto: '', montoDisplay: '' });
-  const [form, setForm] = useState({ nombre: '', monto_meta: '', metaDisplay: '' });
+  const [form, setForm] = useState({ nombre: '', monto_meta: '', metaDisplay: '', moneda: 'PYG' });
+  const monedaAporte = monedaDe(items.find(i => i.id === aportarId));
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [historial, setHistorial] = useState({});
   const [showHistorial, setShowHistorial] = useState(null);
   const [editingContrib, setEditingContrib] = useState(null);
   const [editContribMonto, setEditContribMonto] = useState('');
+  const [editContribDisplay, setEditContribDisplay] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1349,20 +1661,20 @@ function Metas({ userId, soloLectura = false }) {
   useEffect(() => { load(); }, [load]);
 
   function handleMetaMonto(e) {
-    const raw = e.target.value.replace(/\D/g, '');
-    setForm(f => ({ ...f, monto_meta: raw, metaDisplay: fmtD(raw) }));
+    const { valor, display } = montoEscrito(e.target.value, form.moneda);
+    setForm(f => ({ ...f, monto_meta: valor, metaDisplay: display }));
   }
 
   function handleAporteMonto(e) {
-    const raw = e.target.value.replace(/\D/g, '');
-    setAporte({ monto: raw, montoDisplay: fmtD(raw) });
+    const { valor, display } = montoEscrito(e.target.value, monedaAporte);
+    setAporte({ monto: valor, montoDisplay: display });
   }
 
   async function handleAdd(e) {
     e.preventDefault();
     if (!form.nombre.trim() || !form.monto_meta) return;
-    await supabase.from('savings_goals').insert({ user_id: userId, nombre: form.nombre.trim(), monto_meta: parseFloat(form.monto_meta) });
-    setForm({ nombre: '', monto_meta: '', metaDisplay: '' });
+    await supabase.from('savings_goals').insert({ user_id: userId, nombre: form.nombre.trim(), monto_meta: parseFloat(form.monto_meta), moneda: form.moneda || 'PYG' });
+    setForm({ nombre: '', monto_meta: '', metaDisplay: '', moneda: 'PYG' });
     setShowForm(false);
     load();
   }
@@ -1456,20 +1768,22 @@ function Metas({ userId, soloLectura = false }) {
           </div>
           <div className="row">
             <div className="field">
-              <label>Monto objetivo (₲)</label>
-              <input type="text" inputMode="numeric" className="num" value={form.metaDisplay} onChange={handleMetaMonto} placeholder="0" required />
+              <LabelMonto texto="Monto objetivo" moneda={form.moneda} opciones={opcionesMoneda} onChange={m => setForm(f => ({ ...f, moneda: m, monto_meta: '', metaDisplay: '' }))} />
+              <input type="text" inputMode={form.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={form.metaDisplay} onChange={handleMetaMonto} placeholder={form.moneda === 'PYG' ? '0' : '0,00'} required />
             </div>
           </div>
           <button className="add-btn" type="submit">Crear meta</button>
         </form>
       )}
 
+      {!loading && items.length > 0 && <FiltroMoneda value={filtroMoneda} onChange={setFiltroMoneda} opciones={opcionesMoneda} />}
       {loading ? <div className="mas-loading">Cargando...</div> : items.length === 0 ? (
         <div className="empty">No hay metas de ahorro registradas.</div>
       ) : (
         <ul className="mas-list">
-          {items.map(i => {
+          {items.filter(enMoneda(filtroMoneda)).map(i => {
             const pct = i.monto_meta > 0 ? Math.min(100, Math.round((i.monto_actual / i.monto_meta) * 100)) : 0;
+            const fm = (n) => fmtMoneda(n, monedaDe(i));
             return (
               <li key={i.id} style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, padding: '14px 16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -1498,13 +1812,13 @@ function Metas({ userId, soloLectura = false }) {
                   </div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{i.nombre}</div>
-                    <div className="sub">Meta: {fmt(i.monto_meta)}</div>
+                    <div className="sub">Meta: {fm(i.monto_meta)}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {!soloLectura && <button className="del" style={{ fontSize: 12, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => setAportarId(aportarId === i.id ? null : i.id)} title="Aportar">+</button>}
                     <button className="del" style={{ fontSize: 11, color: '#94a3b8', borderColor: 'rgba(148,163,184,0.3)' }} onClick={() => toggleHistorial(i.id)} title="Historial">≡</button>
                     {!soloLectura && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                      onClick={() => { setEditingId(i.id); setEditForm({ nombre: i.nombre, monto_meta: String(Math.round(i.monto_meta)) }); }}>✎</button>}
+                      onClick={() => { setEditingId(i.id); setEditForm({ nombre: i.nombre, monto_meta: String(i.monto_meta), metaDisplay: montoParaEditar(i.monto_meta, monedaDe(i)) }); }}>✎</button>}
                     {!soloLectura && <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>}
                   </div>
                 </div>
@@ -1522,9 +1836,9 @@ function Metas({ userId, soloLectura = false }) {
                 {pct < 100 ? (
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
                     {i.monto_actual > 0
-                      ? <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>{fmt(i.monto_actual)}</span>
+                      ? <span style={{ fontSize: 11, color: '#34d399', fontWeight: 600 }}>{fm(i.monto_actual)}</span>
                       : <span />}
-                    <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>Faltan {fmt(i.monto_meta - i.monto_actual)}</span>
+                    <span style={{ fontSize: 11, color: '#f87171', fontWeight: 600 }}>Faltan {fm(i.monto_meta - i.monto_actual)}</span>
                   </div>
                 ) : (
                   <div style={{ marginTop: 4, fontSize: 11, color: '#34d399', fontWeight: 600, textAlign: 'center' }}>¡Meta cumplida!</div>
@@ -1541,9 +1855,9 @@ function Metas({ userId, soloLectura = false }) {
                             {editingContrib === h.id ? (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', flexShrink: 0 }}>{fmtFecha(h.fecha)}</span>
-                                <input type="text" inputMode="numeric" style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(96,165,250,0.5)', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, padding: '5px 10px', outline: 'none', boxSizing: 'border-box' }}
-                                  value={editContribMonto.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
-                                  onChange={e => setEditContribMonto(e.target.value.replace(/\D/g, ''))} />
+                                <input type="text" inputMode={monedaDe(i) === 'PYG' ? 'numeric' : 'decimal'} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(96,165,250,0.5)', borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, padding: '5px 10px', outline: 'none', boxSizing: 'border-box' }}
+                                  value={editContribDisplay}
+                                  onChange={e => { const { valor, display } = montoEscrito(e.target.value, monedaDe(i)); setEditContribMonto(valor); setEditContribDisplay(display); }} />
                                 <button className="del" style={{ width: 30, height: 30, minWidth: 30, fontSize: 13, color: '#94a3b8', padding: 0, flexShrink: 0 }} onClick={() => setEditingContrib(null)}>✕</button>
                                 <button className="del" style={{ width: 30, height: 30, minWidth: 30, fontSize: 13, color: '#34d399', borderColor: 'rgba(52,211,153,0.4)', background: 'rgba(52,211,153,0.15)', padding: 0, flexShrink: 0 }}
                                   onClick={async () => { await handleEditContrib(h, i.id, parseFloat(editContribMonto)); setEditingContrib(null); }}>✓</button>
@@ -1551,10 +1865,10 @@ function Metas({ userId, soloLectura = false }) {
                             ) : (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
                                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{fmtFecha(h.fecha)}</span>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: '#34d399', marginLeft: 'auto' }}>+{fmt(h.monto)}</span>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: '#34d399', marginLeft: 'auto' }}>+{fm(h.monto)}</span>
                                 {!soloLectura && <>
                                   <button className="del" style={{ width: 26, height: 26, minWidth: 26, fontSize: 11, color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)', padding: 0 }}
-                                    onClick={() => { setEditingContrib(h.id); setEditContribMonto(String(Math.round(h.monto))); }}>✎</button>
+                                    onClick={() => { setEditingContrib(h.id); setEditContribMonto(String(h.monto)); setEditContribDisplay(montoParaEditar(h.monto, monedaDe(i))); }}>✎</button>
                                   <button className="del" style={{ width: 26, height: 26, minWidth: 26, fontSize: 11, padding: 0 }}
                                     onClick={() => handleDeleteContrib(h, i.id)}>✕</button>
                                 </>}
@@ -1568,14 +1882,14 @@ function Metas({ userId, soloLectura = false }) {
                 )}
                 {aportarId === i.id && (
                   <div className="mas-aportar">
-                    <input type="text" inputMode="numeric" className="num" value={aporte.montoDisplay} onChange={handleAporteMonto} placeholder="Monto a aportar (₲)" style={{ flex: 1 }} />
+                    <input type="text" inputMode={monedaDe(i) === 'PYG' ? 'numeric' : 'decimal'} className="num" value={aporte.montoDisplay} onChange={handleAporteMonto} placeholder={`Monto a aportar (${simboloDe(monedaDe(i))})`} style={{ flex: 1 }} />
                     <button className="mas-add-btn" onClick={() => handleAportar(i.id)}>Guardar</button>
                   </div>
                 )}
                 {editingId === i.id && (
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div className="row"><div className="field"><label>Nombre de la meta</label><input type="text" value={editForm.nombre} onChange={e => setEditForm(f => ({...f, nombre: e.target.value}))} /></div></div>
-                    <div className="row"><div className="field"><label>Monto objetivo (₲)</label><input type="text" inputMode="numeric" className="num" value={editForm.monto_meta ? String(editForm.monto_meta).replace(/\B(?=(\d{3})+(?!\d))/g, '.') : ''} onChange={e => setEditForm(f => ({...f, monto_meta: e.target.value.replace(/\D/g, '')}))} /></div></div>
+                    <div className="row"><div className="field"><label>Monto objetivo ({simboloDe(monedaDe(i))})</label><input type="text" inputMode={monedaDe(i) === 'PYG' ? 'numeric' : 'decimal'} className="num" value={editForm.metaDisplay ?? ''} onChange={e => { const { valor, display } = montoEscrito(e.target.value, monedaDe(i)); setEditForm(f => ({ ...f, monto_meta: valor, metaDisplay: display })); }} /></div></div>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
                       <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
                       <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditMeta(i.id)}>Guardar</button>
@@ -1594,6 +1908,9 @@ function Metas({ userId, soloLectura = false }) {
 /* ─── TARJETAS DE CRÉDITO ─── */
 function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
+  const { recortar, verMas } = useVerMas(puedeVerMas(userEmail));
+  // Compra de tarjeta ya pagada del todo: su fecha es la de su última cuota.
+  const fechaGrupoPagado = ([, cuotas]) => (cuotas.every(c => c.estado === 'pagado') ? cuotas.map(c => c.fecha_compra).sort().pop() : null);
   const [cards, setCards] = useState([]);
   const [expenses, setExpenses] = useState({});
   const [expanded, setExpanded] = useState(null);
@@ -1929,7 +2246,8 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                       if (!groupMap[key]) groupMap[key] = [];
                       groupMap[key].push(exp);
                     });
-                    return Object.entries(groupMap).map(([key, cuotas]) => {
+                    const { visibles: gruposVisibles, ocultos: gruposOcultos } = recortar(Object.entries(groupMap), fechaGrupoPagado);
+                    return [...gruposVisibles.map(([key, cuotas]) => {
                       cuotas.sort((a, b) => a.numero_cuota - b.numero_cuota);
                       const total = cuotas.reduce((s, c) => s + c.monto, 0);
                       const paid = cuotas.filter(c => c.estado === 'pagado').length;
@@ -1969,7 +2287,11 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                           )}
                         </div>
                       );
-                    });
+                    }), gruposOcultos.length > 0 && (
+                      <div key="ver-mas" className="mas-ver-mas" style={{ marginBottom: 8 }}>
+                        <button type="button" onClick={(e) => { e.stopPropagation(); verMas(gruposOcultos, fechaGrupoPagado); }}>Ver compras pagadas anteriores ({gruposOcultos.length})</button>
+                      </div>
+                    )];
                   })()}
                   </>
                 )}
@@ -2359,7 +2681,7 @@ function Perfil({ userId, userEmail }) {
 function buildCfgFromDB(uc) {
   const c1 = (uc.cuenta1 || '').toLowerCase();
   const c2 = uc.cuenta2 ? uc.cuenta2.toLowerCase() : null;
-  return { c1, c2, l1: uc.cuenta1 || '', l2: uc.cuenta2 || null, single: !uc.cuenta2 };
+  return { c1, c2, l1: uc.cuenta1 || '', l2: uc.cuenta2 || null, single: !uc.cuenta2, monedas: Array.isArray(uc.monedas) ? uc.monedas.filter(m => MONEDAS[m]) : [] };
 }
 
 export default function Mas() {
@@ -2374,6 +2696,7 @@ export default function Mas() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [cfg, setCfg] = useState(null);
   const [soloLectura, setSoloLectura] = useState(false);
+  const [showConvertir, setShowConvertir] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -2407,13 +2730,13 @@ export default function Mas() {
   const email = session.user.email;
   const renderTab = () => {
     switch (activeTab) {
-      case 'resumen': return <Resumen userId={session.user.id} cfg={cfg} />;
+      case 'resumen': return <Resumen userId={session.user.id} userEmail={email} cfg={cfg} />;
       case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'cobros': return <Cobros userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'deudas': return <Deudas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
-      case 'metas': return <Metas userId={session.user.id} soloLectura={soloLectura} />;
+      case 'metas': return <Metas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'perfil': return <Perfil userId={session.user.id} userEmail={email} />;
       default: return null;
     }
@@ -2426,8 +2749,17 @@ export default function Mas() {
           <h1>Gestión avanzada</h1>
           <p>Finanzas</p>
         </div>
-        <button className="logout-btn" onClick={() => router.push('/')}>← Volver</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {(cfg.monedas || []).length > 0 && puedeConvertir(email) && (
+            <BotonConvertir onClick={() => setShowConvertir(true)} />
+          )}
+          <button className="logout-btn" onClick={() => router.push('/')}>← Volver</button>
+        </div>
       </div>
+
+      {showConvertir && (
+        <Convertidor userId={session.user.id} monedas={cfg.monedas} onCerrar={() => setShowConvertir(false)} />
+      )}
 
       <div className="mas-tabs">
         {TABS.map(t => (

@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeVistaMonedas } from '../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeVistaMonedas, puedeConvertir, puedeMonedasModulos } from '../lib/config';
+import Convertidor, { BotonConvertir } from '../components/Convertidor';
 import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes } from '../lib/recurrencia';
 import { cargarAvisos, calcularAvisos } from '../lib/avisos';
 import { suscribirPush, activarPush, estadoPush } from '../lib/push-cliente';
@@ -11,6 +12,8 @@ import { MONEDAS, esGuarani, fmtMoneda, resumenMonedas, textoAcumulados, totales
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
+// Moneda de un cobro, deuda, cuota o gasto fijo (los viejos no la tienen: guaraníes).
+const monedaDe = (i) => (i?.moneda && MONEDAS[i.moneda] ? i.moneda : 'PYG');
 
 const TIPO_ICON = { cobro: '📥', deuda: '📤', cuota: '🗓️', gasto: '🔄', tarjeta: '💳' };
 const TIPO_LABEL = { cobro: 'Cobro', deuda: 'Deuda', cuota: 'Cuota', gasto: 'Gasto fijo', tarjeta: 'Tarjeta' };
@@ -26,7 +29,7 @@ function NotifItem({ n, cfg }) {
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{TIPO_LABEL[n.tipo]} · {fmtFecha(n.fecha)} · {cuentaLabel}</div>
       </div>
       <div style={{ fontSize: 13, fontWeight: 700, color: esIngreso ? '#34d399' : '#f87171', whiteSpace: 'nowrap', flexShrink: 0 }}>
-        {esIngreso ? '+' : '−'}{fmt(n.monto)}
+        {esIngreso ? '+' : '−'}{fmtMoneda(n.monto, n.moneda)}
       </div>
     </div>
   );
@@ -81,30 +84,36 @@ function DonutSmall({ a, b, idSuffix, colorA, colorB, colorA2, colorB2, size = 9
   );
 }
 
-const COLS_COBRO = 'monto, cuenta, estado, frecuencia, fecha_esperada, proximo_vencimiento, cobrado_fecha, activo';
-const COLS_GASTO = 'monto, cuenta, activo, pagado_mes, pagado_fecha, frecuencia, dia_vencimiento, proximo_vencimiento';
+const COLS_COBRO = 'monto, cuenta, estado, frecuencia, fecha_esperada, proximo_vencimiento, cobrado_fecha, activo, moneda';
+const COLS_GASTO = 'monto, cuenta, activo, pagado_mes, pagado_fecha, frecuencia, dia_vencimiento, proximo_vencimiento, moneda';
 
 // Convierte ítems recurrentes en una entrada por ocurrencia dentro del mes,
 // así todo lo que suma proyecciones sigue trabajando con {monto, cuenta}.
 function expandirGastos(gastos, { y, m0, hoy, esMesActual }) {
-  return gastos.flatMap(g => ocurrenciasEnMes(g, y, m0, hoy, { incluirAtrasadas: esMesActual }).map(() => ({ monto: g.monto || 0, cuenta: g.cuenta })));
+  return gastos.flatMap(g => ocurrenciasEnMes(g, y, m0, hoy, { incluirAtrasadas: esMesActual }).map(() => ({ monto: g.monto || 0, cuenta: g.cuenta, moneda: monedaDe(g) })));
 }
 function expandirCobros(cobros, { y, m0, mesStart, mesEnd, hoy, esMesActual }) {
   return cobros.filter(c => c.activo !== false).flatMap(c => {
     if (!esRecurrente(c)) {
       const vence = c.estado !== 'cobrado' && c.fecha_esperada && c.fecha_esperada >= mesStart && c.fecha_esperada <= mesEnd;
-      return vence ? [{ monto: c.monto || 0, cuenta: c.cuenta }] : [];
+      return vence ? [{ monto: c.monto || 0, cuenta: c.cuenta, moneda: monedaDe(c) }] : [];
     }
-    return ocurrenciasEnMes(c, y, m0, hoy, { incluirAtrasadas: esMesActual }).map(() => ({ monto: c.monto || 0, cuenta: c.cuenta }));
+    return ocurrenciasEnMes(c, y, m0, hoy, { incluirAtrasadas: esMesActual }).map(() => ({ monto: c.monto || 0, cuenta: c.cuenta, moneda: monedaDe(c) }));
   });
 }
 
-function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawData, moneda = 'PYG', vistaMonedas = false }) {
+function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawData, moneda = 'PYG', vistaMonedas = false, proyMonedas = false }) {
   const now = new Date();
   const m = now.getMonth() + 1;
   const mesStr = `${now.getFullYear()}-${String(m).padStart(2, '0')}`;
   // Todo lo que muestra este bloque va en la moneda en vista (₲ por defecto).
   const fmt = (n) => fmtMoneda(n, moneda);
+  // La proyección también: solo entran los cobros, deudas, cuotas y gastos fijos
+  // cargados en esa moneda (las tarjetas son siempre en guaraníes). Sin el
+  // piloto de monedas en los módulos, la proyección existe solo en ₲.
+  const enVista = (r) => monedaDe(r) === moneda;
+  const cuotaEnVista = (r) => monedaDe(r.installment_purchases) === moneda;
+  const mostrarProyeccion = moneda === 'PYG' || proyMonedas;
   // Sin la vista por moneda, las monedas extra del mes se muestran aparte, chiquito.
   const extraMes = vistaMonedas ? [] : Object.entries(resumenMonedas(todas || [], mesStr)).filter(([, v]) => v.tieneMes);
   const del_mes = transactions.filter(t => t.fecha && t.fecha.startsWith(mesStr));
@@ -125,11 +134,11 @@ function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawDat
 
   function calcProjCuenta(c, balActual) {
     if (!projection) return null;
-    const inc = projection.cobros.filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0);
-    const exp = projection.deudas.filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
-      + projection.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0)
-      + projection.gastos.filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0)
-      + (projection.tarjetas || []).filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0);
+    const inc = projection.cobros.filter(r => deCuenta(r.cuenta, c) && enVista(r)).reduce((s, r) => s + (r.monto || 0), 0);
+    const exp = projection.deudas.filter(r => deCuenta(r.cuenta, c) && enVista(r)).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + projection.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c) && cuotaEnVista(r)).reduce((s, r) => s + (r.monto || 0), 0)
+      + projection.gastos.filter(r => deCuenta(r.cuenta, c) && enVista(r)).reduce((s, r) => s + (r.monto || 0), 0)
+      + (moneda === 'PYG' ? (projection.tarjetas || []).filter(r => deCuenta(r.cuenta, c)).reduce((s, r) => s + (r.monto || 0), 0) : 0);
     return { inc, exp, result: balActual + inc - exp };
   }
   const proj1 = calcProjCuenta(cfg.c1, bal1);
@@ -142,12 +151,12 @@ function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawDat
     if (!rawData) return { inc: 0, exp: 0, result: 0 };
     const { mesStart, mesEnd, i, y, m0 } = mo;
     const hoy = hoyISO();
-    const inc = expandirCobros(rawData.cobros.filter(r => deCuenta(r.cuenta, c)), { y, m0, mesStart, mesEnd, hoy, esMesActual: i === 0 }).reduce((s, r) => s + r.monto, 0);
-    const mesGastos = expandirGastos(rawData.gastos.filter(g => deCuenta(g.cuenta, c)), { y, m0, hoy, esMesActual: i === 0 });
-    const exp = rawData.deudas.filter(r => deCuenta(r.cuenta, c) && r.fecha_limite >= mesStart && r.fecha_limite <= mesEnd).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
-      + rawData.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c) && r.fecha_vencimiento >= mesStart && r.fecha_vencimiento <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0)
+    const inc = expandirCobros(rawData.cobros.filter(r => deCuenta(r.cuenta, c) && enVista(r)), { y, m0, mesStart, mesEnd, hoy, esMesActual: i === 0 }).reduce((s, r) => s + r.monto, 0);
+    const mesGastos = expandirGastos(rawData.gastos.filter(g => deCuenta(g.cuenta, c) && enVista(g)), { y, m0, hoy, esMesActual: i === 0 });
+    const exp = rawData.deudas.filter(r => deCuenta(r.cuenta, c) && enVista(r) && r.fecha_limite >= mesStart && r.fecha_limite <= mesEnd).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
+      + rawData.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta, c) && cuotaEnVista(r) && r.fecha_vencimiento >= mesStart && r.fecha_vencimiento <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0)
       + mesGastos.reduce((s, r) => s + (r.monto || 0), 0)
-      + rawData.tarjetas.filter(r => deCuenta(r.cuenta, c) && r.fecha >= mesStart && r.fecha <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0);
+      + (moneda === 'PYG' ? rawData.tarjetas.filter(r => deCuenta(r.cuenta, c) && r.fecha >= mesStart && r.fecha <= mesEnd).reduce((s, r) => s + (r.monto || 0), 0) : 0);
     return { inc, exp, result: inc - exp };
   }
 
@@ -188,7 +197,7 @@ function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawDat
             </span>
           </div>
         </div>
-        {moneda === 'PYG' && (proj1 !== null || rawData) && (
+        {mostrarProyeccion && (proj1 !== null || rawData) && (
           <div style={{ width: '100%', margin: '4px 0 8px' }}>
             <div
               ref={projScrollRef}
@@ -286,7 +295,7 @@ function DonutDuo({ total1, total2, cfg, transactions, todas, projection, rawDat
           ))}
         </div>
       </div>
-      {moneda === 'PYG' && (proj1 !== null || rawData) && (
+      {mostrarProyeccion && (proj1 !== null || rawData) && (
         <div style={{ width: '100%', margin: '4px 0 8px' }}>
           <div
             ref={projScrollRef}
@@ -515,6 +524,7 @@ export default function Home() {
   const [fechaRegistro, setFechaRegistro] = useState(null);
   const formRef = useRef(null);
   const [showInstall, setShowInstall] = useState(false);
+  const [showConvertir, setShowConvertir] = useState(false);
   const [notifPerm, setNotifPerm] = useState('unsupported');
   // Avisos de la campanita que el usuario ya abrió y vio (por dispositivo).
   // La campanita muestra siempre todo lo pendiente; el ícono del teléfono
@@ -739,8 +749,8 @@ export default function Home() {
     const mesStart = `${y}-${m}-01`, mesEnd = `${y}-${m}-${String(lastDay).padStart(2, '0')}`;
     const [r1, r2, r3, r4, r5] = await Promise.all([
       supabase.from('receivables').select(COLS_COBRO).eq('user_id', userId),
-      supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
-      supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+      supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
+      supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
       supabase.from('recurring_expenses').select(COLS_GASTO).eq('user_id', userId).eq('activo', true),
       supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado').gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
     ]);
@@ -761,8 +771,8 @@ export default function Home() {
     const futureEndStr = `${futureEnd.getFullYear()}-${String(futureEnd.getMonth() + 1).padStart(2, '0')}-${String(futureEnd.getDate()).padStart(2, '0')}`;
     const [r1, r2, r3, r4, r5] = await Promise.all([
       supabase.from('receivables').select(COLS_COBRO).eq('user_id', userId),
-      supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, fecha_limite').eq('user_id', userId).gte('fecha_limite', nowStr).lte('fecha_limite', futureEndStr),
-      supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta)').eq('estado', 'pendiente').gte('fecha_vencimiento', nowStr).lte('fecha_vencimiento', futureEndStr).eq('installment_purchases.user_id', userId),
+      supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, fecha_limite, moneda').eq('user_id', userId).gte('fecha_limite', nowStr).lte('fecha_limite', futureEndStr),
+      supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').gte('fecha_vencimiento', nowStr).lte('fecha_vencimiento', futureEndStr).eq('installment_purchases.user_id', userId),
       supabase.from('recurring_expenses').select(COLS_GASTO).eq('user_id', userId).eq('activo', true),
       supabase.from('card_expenses').select('monto, cuenta, estado, fecha:fecha_compra').eq('user_id', userId).neq('estado', 'pagado').gte('fecha_compra', nowStr).lte('fecha_compra', futureEndStr),
     ]);
@@ -978,6 +988,10 @@ export default function Home() {
         <NovedadMonedas userId={session.user.id} cfg={cfg} onIr={() => router.push('/mas?tab=perfil')} />
       )}
 
+      {showConvertir && session?.user?.id && (
+        <Convertidor userId={session.user.id} monedas={monedasActivas} onCerrar={() => setShowConvertir(false)} />
+      )}
+
       {showInstall && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.65)' }} onClick={() => setShowInstall(false)}>
           <div style={{ position: 'absolute', top: 64, right: 12, width: 'min(92vw, 340px)', background: '#0f1f35', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }} onClick={e => e.stopPropagation()}>
@@ -1082,6 +1096,9 @@ export default function Home() {
           gestoRef.current = null;
           if (Math.abs(dx) > 40) cambiarVista(dx < 0 ? 1 : -1);
         } : undefined}>
+        {monedasActivas.length > 0 && puedeConvertir(session?.user?.email) && (
+          <BotonConvertir onClick={() => setShowConvertir(true)} style={{ position: 'absolute', top: 0, right: 0 }} />
+        )}
         <div className="hero-label">Balance total</div>
         <div className={`hero-number${totalGeneral < 0 ? ' neg' : ''}`}>
           {totalGeneral < 0 ? '−' : ''}{fmtMoneda(totalGeneral, vista)}
@@ -1116,7 +1133,7 @@ export default function Home() {
         )}
       </div>
 
-      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={txVista} todas={transactions} projection={projection} rawData={futureRawData} moneda={vista} vistaMonedas={vistaMonedas} />
+      <DonutDuo total1={total1} total2={total2} cfg={cfg} transactions={txVista} todas={transactions} projection={projection} rawData={futureRawData} moneda={vista} vistaMonedas={vistaMonedas} proyMonedas={puedeMonedasModulos(session?.user?.email)} />
 
       {!cfg.single && <div className="totals">
         <div style={{ gridColumn: '1/-1', fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, textAlign: 'center' }}>En caja · total acumulado</div>

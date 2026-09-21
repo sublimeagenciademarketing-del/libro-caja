@@ -84,6 +84,7 @@ body {
 .hero-balance {
   text-align: center;
   margin-bottom: 28px;
+  position: relative;
 }
 .hero-label {
   font-size: 11px;
@@ -805,8 +806,12 @@ ul.ledger li .del:hover { background: rgba(248,113,113,0.2); color: #f87171; bor
 .switch:disabled { opacity: 0.6; cursor: default; }
 
 /* Separador de grupo dentro de una lista (Cobros) */
-.mas-list li.mas-grupo { background: none; border: none; padding: 6px 4px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35); cursor: default; }
-.mas-list li.mas-grupo:first-child { padding-top: 0; }
+.mas-list li.mas-grupo, .resumen-list li.mas-grupo { background: none; border: none; padding: 6px 4px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.35); cursor: default; }
+.mas-list li.mas-grupo:first-child, .resumen-list li.mas-grupo:first-child { padding-top: 0; }
+/* Botón "Ver más" al final de una lista larga */
+.mas-ver-mas { background: none !important; border: none !important; padding: 2px 0 0 !important; display: flex; justify-content: center; cursor: default !important; }
+.mas-ver-mas button { font-family: inherit; font-size: 12px; font-weight: 700; color: #a5b4fc; background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3); border-radius: 50px; padding: 8px 16px; cursor: pointer; }
+.mas-ver-mas button:hover { background: rgba(99,102,241,0.22); }
 
 /* Fila de filtros deslizable (panel admin) */
 .chips-scroll { scrollbar-width: none; -webkit-overflow-scrolling: touch; }

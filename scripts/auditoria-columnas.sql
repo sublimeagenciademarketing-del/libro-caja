@@ -13,12 +13,12 @@ with usadas(tabla, columna) as (values
   ('credit_cards','fecha_cierre'),('credit_cards','fecha_limite_pago'),('credit_cards','created_at'),
 
   ('debts','id'),('debts','user_id'),('debts','cuenta'),('debts','acreedor'),
-  ('debts','monto_total'),('debts','monto_pagado'),('debts','fecha_limite'),('debts','estado'),
+  ('debts','monto_total'),('debts','monto_pagado'),('debts','fecha_limite'),('debts','estado'),('debts','moneda'),
 
   ('installment_purchases','id'),('installment_purchases','user_id'),('installment_purchases','cuenta'),
   ('installment_purchases','descripcion'),('installment_purchases','dia_vencimiento'),
   ('installment_purchases','fecha_primera_cuota'),('installment_purchases','frecuencia'),
-  ('installment_purchases','monto_por_cuota'),('installment_purchases','total_cuotas'),
+  ('installment_purchases','monto_por_cuota'),('installment_purchases','total_cuotas'),('installment_purchases','moneda'),
 
   ('installments','id'),('installments','user_id'),('installments','purchase_id'),
   ('installments','numero_cuota'),('installments','monto'),
@@ -29,24 +29,24 @@ with usadas(tabla, columna) as (values
 
   ('receivables','id'),('receivables','user_id'),('receivables','cuenta'),('receivables','cliente'),
   ('receivables','monto'),('receivables','fecha_esperada'),('receivables','forma_pago'),
-  ('receivables','frecuencia'),('receivables','estado'),('receivables','proximo_vencimiento'),('receivables','cobrado_fecha'),('receivables','activo'),
+  ('receivables','frecuencia'),('receivables','estado'),('receivables','proximo_vencimiento'),('receivables','cobrado_fecha'),('receivables','activo'),('receivables','moneda'),
 
   ('recurring_expenses','id'),('recurring_expenses','user_id'),('recurring_expenses','cuenta'),
   ('recurring_expenses','descripcion'),('recurring_expenses','monto'),
   ('recurring_expenses','dia_vencimiento'),('recurring_expenses','frecuencia'),
-  ('recurring_expenses','activo'),('recurring_expenses','pagado_mes'),('recurring_expenses','pagado_fecha'),('recurring_expenses','proximo_vencimiento'),
+  ('recurring_expenses','activo'),('recurring_expenses','pagado_mes'),('recurring_expenses','pagado_fecha'),('recurring_expenses','proximo_vencimiento'),('recurring_expenses','moneda'),
 
   ('savings_contributions','id'),('savings_contributions','goal_id'),
   ('savings_contributions','user_id'),('savings_contributions','monto'),('savings_contributions','fecha'),
 
   ('savings_goals','id'),('savings_goals','user_id'),('savings_goals','nombre'),
-  ('savings_goals','monto_meta'),('savings_goals','monto_actual'),
+  ('savings_goals','monto_meta'),('savings_goals','monto_actual'),('savings_goals','moneda'),
 
   ('transactions','id'),('transactions','user_id'),('transactions','cuenta'),
-  ('transactions','categoria'),('transactions','monto'),('transactions','tipo'),('transactions','fecha'),
+  ('transactions','categoria'),('transactions','monto'),('transactions','tipo'),('transactions','fecha'),('transactions','moneda'),
 
   ('user_config','user_id'),('user_config','email'),('user_config','plan'),
-  ('user_config','cuenta1'),('user_config','cuenta2'),
+  ('user_config','cuenta1'),('user_config','cuenta2'),('user_config','monedas'),
   ('user_config','fecha_registro'),('user_config','admin_last_visit'),('user_config','registrado_en'),('user_config','ultima_apertura'),
 
   ('user_profiles','id')
