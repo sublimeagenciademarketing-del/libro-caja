@@ -20,11 +20,12 @@ const par = (a, b) => (FUERZA[a] < FUERZA[b] ? [a, b] : [b, a]);
 // Texto sin símbolo, listo para pegar en un campo de monto ("7.300.000" o "1.234,50").
 const textoParaCopiar = (n, moneda) => fmtMoneda(n, moneda).replace(/^\S+\s/, '');
 
-export function BotonConvertir({ onClick, style, title = 'Convertir monedas' }) {
+export function BotonConvertir({ onClick, style, title = 'Convertir monedas', conTexto = false }) {
   return (
     <button type="button" onClick={onClick} title={title} aria-label={title}
-      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, ...style }}>
+      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, height: 32, minWidth: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', padding: conTexto ? '0 10px' : 0, fontFamily: 'inherit', ...style }}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.65)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h14M14 3l4 4-4 4"/><path d="M20 17H6M10 13l-4 4 4 4"/></svg>
+      {conTexto && <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.65)' }}>Convertir</span>}
     </button>
   );
 }

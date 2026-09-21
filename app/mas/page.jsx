@@ -328,16 +328,20 @@ function Resumen({ userId, userEmail, cfg }) {
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Compromisos del mes</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', fontVariantNumeric: 'tabular-nums' }}>{fmt(compromisos.total)}{pctComprometido !== null ? ` · ${pctComprometido} % de tus ingresos` : ''}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(compromisos.total)}</span>
               </div>
               {pctComprometido !== null && (
                 <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 8, overflow: 'hidden' }}>
                   <div style={{ width: `${Math.min(pctComprometido, 100)}%`, height: '100%', borderRadius: 3, background: pctComprometido > 80 ? '#f87171' : pctComprometido > 50 ? '#fbbf24' : '#34d399', transition: 'width .4s' }} />
                 </div>
               )}
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 6, lineHeight: 1.5 }}>
+              {pctComprometido !== null && (
+                <div style={{ fontSize: 12, color: pctComprometido > 80 ? '#f87171' : pctComprometido > 50 ? '#fbbf24' : '#34d399', fontWeight: 700, marginTop: 8 }}>
+                  {pctComprometido} % de tus ingresos{esteMes.ing === 0 && promIng > 0 ? ' (promedio)' : ''}
+                </div>
+              )}
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4, lineHeight: 1.5 }}>
                 {[compromisos.fijos > 0 && `gastos fijos ${fmt(compromisos.fijos)}`, compromisos.cuotas > 0 && `cuotas ${fmt(compromisos.cuotas)}`, compromisos.tarjetas > 0 && `tarjetas ${fmt(compromisos.tarjetas)}`, compromisos.deudas > 0 && `deudas ${fmt(compromisos.deudas)}`].filter(Boolean).join(' · ')}
-                {esteMes.ing === 0 && promIng > 0 ? ' · comparado con tu ingreso promedio' : ''}
               </div>
             </div>
           )}
@@ -347,11 +351,11 @@ function Resumen({ userId, userEmail, cfg }) {
       {ampliado && !loading && promedioBase.length > 0 && (
         <div style={tarjeta}>
           <div style={titulo}>Promedio mensual · {promedioBase.length} {promedioBase.length === 1 ? 'mes' : 'meses'}{mesesCerrados.length ? ' cerrados' : ''}</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {[{ l: 'Ingresos', v: promIng, c: '#34d399', s: '+' }, { l: 'Gastos', v: promGas, c: '#f87171', s: '−' }, { l: 'Te queda', v: promIng - promGas, c: promIng - promGas >= 0 ? '#34d399' : '#f87171', s: signo(promIng - promGas) }].map(x => (
-              <div key={x.l} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '8px 10px' }}>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{x.l}</div>
-                <div style={{ fontSize: 12, fontWeight: 800, color: x.c, marginTop: 3, fontVariantNumeric: 'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.s}{fmt(x.v)}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[{ l: 'Ingresos', v: promIng, c: '#34d399', s: '+' }, { l: 'Gastos', v: promGas, c: '#f87171', s: '−' }, { l: 'Te queda', v: promIng - promGas, c: promIng - promGas >= 0 ? '#34d399' : '#f87171', s: signo(promIng - promGas), fuerte: true }].map(x => (
+              <div key={x.l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingTop: x.fuerte ? 6 : 0, borderTop: x.fuerte ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
+                <span style={{ fontSize: 13, color: x.fuerte ? '#fff' : 'rgba(255,255,255,0.6)', fontWeight: x.fuerte ? 700 : 400 }}>{x.l}</span>
+                <span style={{ fontSize: x.fuerte ? 15 : 13, fontWeight: x.fuerte ? 800 : 700, color: x.c, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{x.s}{fmt(x.v)}</span>
               </div>
             ))}
           </div>
