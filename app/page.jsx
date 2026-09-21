@@ -1097,7 +1097,7 @@ export default function Home() {
           if (Math.abs(dx) > 40) cambiarVista(dx < 0 ? 1 : -1);
         } : undefined}>
         {monedasActivas.length > 0 && puedeConvertir(session?.user?.email) && (
-          <BotonConvertir onClick={() => setShowConvertir(true)} conTexto style={{ position: 'absolute', top: 0, right: 0 }} />
+          <BotonConvertir onClick={() => setShowConvertir(true)} conTexto style={{ position: 'absolute', top: -14, right: 0, height: 28 }} />
         )}
         <div className="hero-label">Balance total</div>
         <div className={`hero-number${totalGeneral < 0 ? ' neg' : ''}`}>

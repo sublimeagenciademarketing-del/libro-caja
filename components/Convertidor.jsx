@@ -164,6 +164,7 @@ export default function Convertidor({ userId, monedas, onCerrar }) {
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>Cargá el monto y la cotización.</div>
           )}
         </button>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 10, textAlign: 'center' }}>Es solo una calculadora: no anota ningún movimiento.</div>
       </div>
     </div>
   );
