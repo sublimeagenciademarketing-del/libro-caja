@@ -160,6 +160,7 @@ function Resumen({ userId, userEmail, cfg }) {
   const [loading, setLoading] = useState(true);
   const [projection, setProjection] = useState(null);
   const [mesAbierto, setMesAbierto] = useState(null);
+  const [mesMonedaAbierto, setMesMonedaAbierto] = useState(null); // "USD-8": mes desplegado en la sección de esa moneda
   const [porMoneda, setPorMoneda] = useState({});
   const [compromisos, setCompromisos] = useState(null);
   const [verInfo, setVerInfo] = useState(false);
@@ -567,26 +568,50 @@ function Resumen({ userId, userEmail, cfg }) {
           <div key={mo} style={{ marginTop: 18 }}>
             <div style={{ ...titulo, display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', color: '#fff', borderRadius: 7, padding: '2px 7px', fontSize: 10 }}>{MONEDAS[mo].simbolo}</span>
-              En {MONEDAS[mo].nombre.toLowerCase()} · {anio}
+              En {MONEDAS[mo].nombre.toLowerCase()} · {anio}{porCuentas ? ' · tocá un mes para ver el detalle' : ''}
             </div>
             <ul className="resumen-list">
-              {meses.filter(m => m.tiene).map(m => (
-                <li key={m.mes}>
-                  <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
-                  {porCuentas ? (
-                    <div className="resumen-cuentas">
-                      {CUENTAS.map(({ l, k }) => (
-                        <span key={k} className={m['bal' + k] >= 0 ? 'pos' : 'neg'}>{l}: {signo(m['bal' + k])}{f(m['bal' + k])}</span>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="resumen-cuentas" style={{ alignItems: 'flex-end' }}>
-                      <span className={m.bal >= 0 ? 'pos' : 'neg'}>{signo(m.bal)}{f(m.bal)}</span>
-                      <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>+{f(m.ing)} · −{f(m.gas)}</span>
+              {meses.filter(m => m.tiene).map(m => {
+                const clave = `${mo}-${m.mes}`;
+                const abierto = porCuentas && mesMonedaAbierto === clave;
+                const detalle = (etiqueta, ing, gas) => (
+                  <div key={etiqueta} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 12, padding: '4px 0' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.5)', fontWeight: 600 }}>{etiqueta}</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: '#34d399', fontWeight: 700 }}>+{f(ing)}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.3)', margin: '0 6px' }}>·</span>
+                      <span style={{ color: '#f87171', fontWeight: 700 }}>−{f(gas)}</span>
+                    </span>
+                  </div>
+                );
+                return (
+                <li key={m.mes} style={porCuentas ? { flexDirection: 'column', alignItems: 'stretch', cursor: 'pointer' } : undefined}
+                  onClick={porCuentas ? () => setMesMonedaAbierto(abierto ? null : clave) : undefined}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
+                    {porCuentas ? (
+                      <div className="resumen-cuentas">
+                        {CUENTAS.map(({ l, k }) => (
+                          <span key={k} className={m['bal' + k] >= 0 ? 'pos' : 'neg'}>{l}: {signo(m['bal' + k])}{f(m['bal' + k])}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="resumen-cuentas" style={{ alignItems: 'flex-end' }}>
+                        <span className={m.bal >= 0 ? 'pos' : 'neg'}>{signo(m.bal)}{f(m.bal)}</span>
+                        <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>+{f(m.ing)} · −{f(m.gas)}</span>
+                      </div>
+                    )}
+                    {porCuentas && <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, flexShrink: 0 }}>{abierto ? '▲' : '▼'}</span>}
+                  </div>
+                  {abierto && (
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      {CUENTAS.map(({ l, k }) => detalle(l, m['ing' + k], m['gas' + k]))}
+                      {detalle('Total', m.ing, m.gas)}
                     </div>
                   )}
                 </li>
-              ))}
+                );
+              })}
               <li className="resumen-total">
                 <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
                 {porCuentas && (
