@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos } from '../../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas } from '../../lib/config';
 import { MONEDAS, esGuarani, fmtMoneda, leerMonto } from '../../lib/monedas';
 import Convertidor, { BotonConvertir } from '../../components/Convertidor';
 import { estadoPush, activarPush, desuscribirPush } from '../../lib/push-cliente';
@@ -162,8 +162,13 @@ function Resumen({ userId, userEmail, cfg }) {
   const [mesAbierto, setMesAbierto] = useState(null);
   const [porMoneda, setPorMoneda] = useState({});
   const [compromisos, setCompromisos] = useState(null);
+  const [verInfo, setVerInfo] = useState(false);
   const anio = new Date().getFullYear();
   const ampliado = puedeResumenAmpliado(userEmail);
+  const resumenV2 = puedeResumenCuentas(userEmail);
+  // Cuenta doble: cada bloque se muestra por cuenta, nunca sumado.
+  const porCuentas = !cfg.single && resumenV2;
+  const CUENTAS = [{ c: cfg.c1, l: cfg.l1, k: '1', color: '#4facfe' }, ...(cfg.single ? [] : [{ c: cfg.c2, l: cfg.l2, k: '2', color: '#a78bfa' }])];
   const monedasActivas = cfg.monedas || [];
 
   useEffect(() => {
@@ -198,9 +203,10 @@ function Resumen({ userId, userEmail, cfg }) {
         pm[mo] = Array.from({ length: 12 }, (_, i) => {
           const key = `${anio}-${String(i + 1).padStart(2, '0')}`;
           const del = txm.filter(t => t.fecha && t.fecha.startsWith(key));
-          const ing = del.filter(t => t.tipo === 'ingreso').reduce((s, t) => s + Number(t.monto || 0), 0);
-          const gas = del.filter(t => t.tipo === 'gasto').reduce((s, t) => s + Number(t.monto || 0), 0);
-          return { mes: i, ing, gas, bal: ing - gas, tiene: del.length > 0 };
+          const suma = (tipo, c) => del.filter(t => t.tipo === tipo && (!c || cfg.single || mismaCuenta(t.cuenta, c))).reduce((s, t) => s + Number(t.monto || 0), 0);
+          const ing = suma('ingreso'), gas = suma('gasto');
+          const ing1 = suma('ingreso', cfg.c1), gas1 = suma('gasto', cfg.c1), ing2 = suma('ingreso', cfg.c2), gas2 = suma('gasto', cfg.c2);
+          return { mes: i, ing, gas, bal: ing - gas, ing1, gas1, ing2, gas2, bal1: ing1 - gas1, bal2: ing2 - gas2, tiene: del.length > 0 };
         });
       }
       setPorMoneda(pm);
@@ -234,14 +240,19 @@ function Resumen({ userId, userEmail, cfg }) {
       // cuotas, tarjetas y deudas con fecha), pagado o no, para compararlo con
       // los ingresos. Se cuentan todas las ocurrencias del mes, no solo las pendientes.
       const [{ data: cuotasMes }, { data: tarjetasMes }] = await Promise.all([
-        supabase.from('installments').select('monto, installment_purchases!inner(user_id, moneda)').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-        supabase.from('card_expenses').select('monto').eq('user_id', userId).gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
+        supabase.from('installments').select('monto, installment_purchases!inner(user_id, moneda, cuenta)').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+        supabase.from('card_expenses').select('monto, cuenta').eq('user_id', userId).gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
       ]);
-      const fijos = (r4.data || []).flatMap(g => cadenciaEnMes(g, y, mo, hoy).map(() => g.monto || 0)).reduce((s, n) => s + n, 0);
-      const cuotas = (cuotasMes || []).filter(c => monedaDe(c.installment_purchases) === 'PYG').reduce((s, c) => s + (c.monto || 0), 0);
-      const tarjetas = (tarjetasMes || []).reduce((s, c) => s + (c.monto || 0), 0);
-      const deudas = (r2.data || []).reduce((s, d) => s + ((d.monto_total || 0) - (d.monto_pagado || 0)), 0);
-      setCompromisos({ fijos, cuotas, tarjetas, deudas, total: fijos + cuotas + tarjetas + deudas });
+      // Se calcula para el total y para cada cuenta (en cuenta doble se muestra por cuenta).
+      const compromisosDe = (c) => {
+        const de = (valor) => !c || cfg.single || mismaCuenta(valor, c);
+        const fijos = (r4.data || []).filter(g => de(g.cuenta)).flatMap(g => cadenciaEnMes(g, y, mo, hoy).map(() => g.monto || 0)).reduce((s, n) => s + n, 0);
+        const cuotas = (cuotasMes || []).filter(x => monedaDe(x.installment_purchases) === 'PYG' && de(x.installment_purchases?.cuenta)).reduce((s, x) => s + (x.monto || 0), 0);
+        const tarjetas = (tarjetasMes || []).filter(x => de(x.cuenta)).reduce((s, x) => s + (x.monto || 0), 0);
+        const deudas = (r2.data || []).filter(d => de(d.cuenta)).reduce((s, d) => s + ((d.monto_total || 0) - (d.monto_pagado || 0)), 0);
+        return { fijos, cuotas, tarjetas, deudas, total: fijos + cuotas + tarjetas + deudas };
+      };
+      setCompromisos({ ...compromisosDe(null), c1: compromisosDe(cfg.c1), c2: cfg.single ? null : compromisosDe(cfg.c2) });
 
       setLoading(false);
     }
@@ -276,6 +287,33 @@ function Resumen({ userId, userEmail, cfg }) {
   // Compromisos contra ingresos: los del mes si ya hay, si no el promedio mensual.
   const ingresoReferencia = esteMes && esteMes.ing > 0 ? esteMes.ing : promIng;
   const pctComprometido = compromisos && ingresoReferencia > 0 ? Math.round((compromisos.total / ingresoReferencia) * 100) : null;
+  // Lo mismo, cuenta por cuenta (cuenta doble).
+  const promDe = (campo) => (promedioBase.length ? promedioBase.reduce((s, m) => s + m[campo], 0) / promedioBase.length : 0);
+  const pctDe = (k) => {
+    const c = compromisos?.['c' + k];
+    if (!c || !esteMes) return null;
+    const ref = esteMes['ing' + k] > 0 ? esteMes['ing' + k] : promDe('ing' + k);
+    return ref > 0 ? Math.round((c.total / ref) * 100) : null;
+  };
+  const colorPct = (p) => (p > 80 ? '#f87171' : p > 50 ? '#fbbf24' : '#34d399');
+  const detalleCompromisos = (c) => [c.fijos > 0 && `gastos fijos ${fmt(c.fijos)}`, c.cuotas > 0 && `cuotas ${fmt(c.cuotas)}`, c.tarjetas > 0 && `tarjetas ${fmt(c.tarjetas)}`, c.deudas > 0 && `deudas ${fmt(c.deudas)}`].filter(Boolean).join(' · ');
+  // Título "Compromisos del mes" con el iconito de ayuda; tocarlo muestra qué significa.
+  const tituloCompromisos = (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Compromisos del mes</span>
+        {resumenV2 && (
+          <button type="button" onClick={() => setVerInfo(v => !v)} aria-label="Qué son los compromisos del mes" aria-expanded={verInfo}
+            style={{ width: 18, height: 18, borderRadius: 9, border: `1px solid ${verInfo ? 'rgba(165,180,252,0.7)' : 'rgba(255,255,255,0.3)'}`, background: verInfo ? 'rgba(99,102,241,0.25)' : 'transparent', color: verInfo ? '#a5b4fc' : 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0, lineHeight: 1, fontFamily: 'inherit', flexShrink: 0 }}>i</button>
+        )}
+      </div>
+      {resumenV2 && verInfo && (
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 10, padding: '8px 10px', marginTop: 8 }}>
+          Todo lo que hay que pagar sí o sí este mes, esté pagado o no: gastos fijos, cuotas, pagos de tarjeta y deudas con fecha. Se compara con lo que ingresó en el mes: cuanto más alto el porcentaje, menos margen te queda.
+        </div>
+      )}
+    </div>
+  );
   const signo = (n) => (n >= 0 ? '+' : '−');
   const Variacion = ({ v, alReves = false }) => {
     if (v === null) return null;
@@ -303,7 +341,64 @@ function Resumen({ userId, userEmail, cfg }) {
         </div>
       </div>
 
-      {ampliado && !loading && esteMes && esteMes.tiene && (
+      {ampliado && !loading && esteMes && esteMes.tiene && porCuentas && (
+        <div style={tarjeta}>
+          <div style={titulo}>Este mes · {MESES[mesActual]}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {CUENTAS.map(({ l, k, color }) => (
+              <div key={k} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Ingresos</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#34d399', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>+{fmt(esteMes['ing' + k])}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Gastos</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>−{fmt(esteMes['gas' + k])}</span>
+                </div>
+                <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '2px 0' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: '#fff', fontWeight: 700 }}>En caja</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: esteMes['bal' + k] >= 0 ? '#34d399' : '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{signo(esteMes['bal' + k])}{fmt(esteMes['bal' + k])}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {mesAnterior?.tiene && (
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 8 }}>
+              En caja en {MESES[mesActual - 1].toLowerCase()}: {CUENTAS.map(({ l, k }) => `${l} ${signo(mesAnterior['bal' + k])}${fmt(mesAnterior['bal' + k])}`).join(' · ')}.
+            </div>
+          )}
+          {compromisos && CUENTAS.some(({ k }) => compromisos['c' + k]?.total > 0) && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+              {tituloCompromisos}
+              {CUENTAS.map(({ l, k, color }) => {
+                const c = compromisos['c' + k];
+                if (!c || c.total <= 0) return null;
+                const pct = pctDe(k);
+                return (
+                  <div key={k} style={{ marginTop: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color }}>{l}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(c.total)}</span>
+                    </div>
+                    {pct !== null && (
+                      <div style={{ height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.08)', marginTop: 6, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: 3, background: colorPct(pct), transition: 'width .4s' }} />
+                      </div>
+                    )}
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4, lineHeight: 1.5 }}>
+                      {detalleCompromisos(c)}{pct !== null ? ` · ${pct} % de sus ingresos${esteMes['ing' + k] === 0 ? ' (promedio)' : ''}` : ''}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {ampliado && !loading && esteMes && esteMes.tiene && !porCuentas && (
         <div style={tarjeta}>
           <div style={titulo}>Este mes · {MESES[mesActual]}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -326,8 +421,8 @@ function Resumen({ userId, userEmail, cfg }) {
           </div>
           {compromisos && compromisos.total > 0 && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>Compromisos del mes</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>{tituloCompromisos}</div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(compromisos.total)}</span>
               </div>
               {pctComprometido !== null && (
@@ -348,7 +443,36 @@ function Resumen({ userId, userEmail, cfg }) {
         </div>
       )}
 
-      {ampliado && !loading && promedioBase.length > 0 && (
+      {ampliado && !loading && promedioBase.length > 0 && porCuentas && (
+        <div style={tarjeta}>
+          <div style={titulo}>Promedio mensual · {promedioBase.length} {promedioBase.length === 1 ? 'mes' : 'meses'}{mesesCerrados.length ? ' cerrados' : ''}</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {CUENTAS.map(({ l, k, color }) => {
+              const pi = promDe('ing' + k), pg = promDe('gas' + k), queda = pi - pg;
+              return (
+                <div key={k} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Ingresos</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#34d399', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>+{fmt(pi)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Gastos</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>−{fmt(pg)}</span>
+                  </div>
+                  <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '2px 0' }} />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 4, alignItems: 'center' }}>
+                    <span style={{ fontSize: 11, color: '#fff', fontWeight: 700 }}>Te queda</span>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: queda >= 0 ? '#34d399' : '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{signo(queda)}{fmt(queda)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {ampliado && !loading && promedioBase.length > 0 && !porCuentas && (
         <div style={tarjeta}>
           <div style={titulo}>Promedio mensual · {promedioBase.length} {promedioBase.length === 1 ? 'mes' : 'meses'}{mesesCerrados.length ? ' cerrados' : ''}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -449,14 +573,27 @@ function Resumen({ userId, userEmail, cfg }) {
               {meses.filter(m => m.tiene).map(m => (
                 <li key={m.mes}>
                   <div className="resumen-mes-nombre">{MESES[m.mes]}</div>
-                  <div className="resumen-cuentas" style={{ alignItems: 'flex-end' }}>
-                    <span className={m.bal >= 0 ? 'pos' : 'neg'}>{signo(m.bal)}{f(m.bal)}</span>
-                    <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>+{f(m.ing)} · −{f(m.gas)}</span>
-                  </div>
+                  {porCuentas ? (
+                    <div className="resumen-cuentas">
+                      {CUENTAS.map(({ l, k }) => (
+                        <span key={k} className={m['bal' + k] >= 0 ? 'pos' : 'neg'}>{l}: {signo(m['bal' + k])}{f(m['bal' + k])}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="resumen-cuentas" style={{ alignItems: 'flex-end' }}>
+                      <span className={m.bal >= 0 ? 'pos' : 'neg'}>{signo(m.bal)}{f(m.bal)}</span>
+                      <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: 600 }}>+{f(m.ing)} · −{f(m.gas)}</span>
+                    </div>
+                  )}
                 </li>
               ))}
               <li className="resumen-total">
                 <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
+                {porCuentas && (
+                  <div className="resumen-cuentas">
+                    {CUENTAS.map(({ l, k }) => { const t = meses.reduce((s, m) => s + m['bal' + k], 0); return <span key={k} className={t >= 0 ? 'pos' : 'neg'}>{l}: {signo(t)}{f(t)}</span>; })}
+                  </div>
+                )}
                 <div className={`resumen-bal ${total >= 0 ? 'pos' : 'neg'}`} style={{ fontSize: 16, fontWeight: 800 }}>{signo(total)}{f(total)}</div>
               </li>
             </ul>
