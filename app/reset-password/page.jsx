@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
+import Cartel, { btnPrimario, textoCartel } from '../../components/Cartel';
 
 export default function ResetPasswordPage() {
   const [password, setPassword] = useState('');
@@ -30,8 +31,8 @@ export default function ResetPasswordPage() {
     const { error } = await supabase.auth.updateUser({ password });
     setLoading(false);
     if (error) { setError('No se pudo actualizar la contraseña.'); return; }
-    setSuccess('¡Contraseña actualizada! Redirigiendo...');
-    setTimeout(() => router.push('/'), 2000);
+    setSuccess('lista');
+    setTimeout(() => router.push('/'), 3500);
   }
 
   return (
@@ -60,12 +61,17 @@ export default function ResetPasswordPage() {
             </div>
           </div>
           {error && <p className="error">{error}</p>}
-          {success && <p style={{ color: '#34d399', fontSize: 13, marginTop: 8 }}>{success}</p>}
-          <button className="primary-btn" type="submit" disabled={loading}>
+          <button className="primary-btn" type="submit" disabled={loading || !!success}>
             {loading ? 'Guardando...' : 'Guardar contraseña →'}
           </button>
         </form>
       </div>
+      {success && (
+        <Cartel icono="✅" titulo="¡Contraseña guardada!" onCerrar={() => router.push('/')}
+          botones={<button type="button" onClick={() => router.push('/')} style={btnPrimario}>Entrar a MiCaja →</button>}>
+          <p style={textoCartel}>Ya podés entrar con tu contraseña nueva. Te llevamos al inicio en unos segundos.</p>
+        </Cartel>
+      )}
     </div>
   );
 }

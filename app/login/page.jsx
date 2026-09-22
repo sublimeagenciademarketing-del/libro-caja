@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 import { DIAS_PRUEBA } from '../../lib/config';
+import Cartel, { btnPrimario, btnSecundario, btnLink, textoCartel, Destacado } from '../../components/Cartel';
 
 // Dominios de correo frecuentes en Paraguay y errores típicos al escribirlos.
 // Si el email se parece a uno conocido pero no coincide, se pregunta antes de
@@ -116,7 +117,7 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (error) { setError('No se pudo enviar el email.'); return; }
-    setSuccess('Te enviamos un email para restablecer tu contraseña.');
+    setAviso({ tipo: 'recuperar_enviado', email: emailLimpio() });
   }
 
   // Vuelve a mandar el correo de confirmación (Supabase permite uno por minuto).
@@ -236,11 +237,8 @@ export default function LoginPage() {
 // (la persona no tiene cuenta, no confirmó el email, o acaba de registrarse).
 function Aviso({ aviso, reenvio, diasPrueba, onCerrar, onReenviar, onRegistrarme, onEntrar, onRecuperar, onCorregirEmail, onUsarSugerido, onDejarComoEsta }) {
   const { tipo, email, sugerido } = aviso;
-  const Email = () => <span style={{ display: 'block', fontSize: 17, fontWeight: 800, color: '#fff', margin: '8px 0 12px', wordBreak: 'break-all' }}>{email}</span>;
-  const btnPrimario = { width: '100%', padding: '13px 16px', borderRadius: 12, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', boxShadow: '0 4px 16px rgba(99,102,241,0.35)' };
-  const btnSecundario = { width: '100%', padding: '11px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' };
-  const btnLink = { background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', padding: '6px 0 0', textDecoration: 'underline' };
-  const texto = { fontSize: 14, color: 'rgba(255,255,255,0.65)', lineHeight: 1.6, margin: 0 };
+  const Email = () => <Destacado>{email}</Destacado>;
+  const texto = textoCartel;
   const textoReenvio = { enviando: 'Enviando…', enviado: '✓ Email reenviado. Mirá tu bandeja de entrada y Spam.', esperar: 'Esperá un minuto antes de reenviar.', error: 'No se pudo reenviar. Probá de nuevo en un rato.' }[reenvio];
   const botonReenviar = (
     <>
@@ -272,6 +270,11 @@ function Aviso({ aviso, reenvio, diasPrueba, onCerrar, onReenviar, onRegistrarme
       cuerpo: <p style={texto}>Ya existe una cuenta con <Email /> Entrá con tu contraseña; si no la recordás, podés recuperarla.</p>,
       botones: <><button type="button" onClick={onEntrar} style={btnPrimario}>Iniciar sesión →</button><button type="button" onClick={onRecuperar} style={btnSecundario}>Recuperar contraseña</button></>,
     },
+    recuperar_enviado: {
+      icono: '📬', titulo: 'Revisá tu email',
+      cuerpo: <p style={texto}>Te enviamos un correo a <Email /> Abrilo y tocá el enlace para crear una contraseña nueva.<br /><span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)' }}>¿No te llega? Puede tardar un par de minutos. Mirá en Spam o Promociones.</span></p>,
+      botones: <button type="button" onClick={onEntrar} style={btnPrimario}>Entendido</button>,
+    },
     sugerencia: {
       icono: '🤔', titulo: '¿Está bien escrito?',
       cuerpo: <p style={texto}>Escribiste <Email /> ¿Quisiste decir <b style={{ color: '#fff', wordBreak: 'break-all' }}>{sugerido}</b>? Si el email está mal, el correo de confirmación no te va a llegar.</p>,
@@ -281,15 +284,9 @@ function Aviso({ aviso, reenvio, diasPrueba, onCerrar, onReenviar, onRegistrarme
   if (!contenido) return null;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(2,6,23,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={onCerrar}>
-      <div role="dialog" aria-label={contenido.titulo} onClick={e => e.stopPropagation()}
-        style={{ width: 'min(100%, 380px)', background: '#0f1f35', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 22, padding: '26px 22px 20px', boxShadow: '0 12px 48px rgba(0,0,0,0.6)', textAlign: 'center' }}>
-        <div style={{ fontSize: 40, lineHeight: 1, marginBottom: 12 }}>{contenido.icono}</div>
-        <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', marginBottom: 10, letterSpacing: '-0.01em' }}>{contenido.titulo}</div>
-        {contenido.cuerpo}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 18 }}>{contenido.botones}</div>
-      </div>
-    </div>
+    <Cartel icono={contenido.icono} titulo={contenido.titulo} botones={contenido.botones} onCerrar={onCerrar}>
+      {contenido.cuerpo}
+    </Cartel>
   );
 }
 
