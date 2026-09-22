@@ -18,12 +18,14 @@ export async function GET(request) {
 
     const actividad = {};
     await Promise.all((configs || []).map(async (uc) => {
+      // Por created_at (cuándo lo cargó), no por fecha (la que el usuario escribió:
+      // puede ser futura o vieja y no dice nada sobre si está usando el app).
       const { data, count } = await admin.from('transactions')
-        .select('fecha', { count: 'exact' }).eq('user_id', uc.user_id)
-        .order('fecha', { ascending: false }).limit(1);
+        .select('created_at', { count: 'exact' }).eq('user_id', uc.user_id)
+        .order('created_at', { ascending: false }).limit(1);
       actividad[uc.user_id] = {
         movimientos: count || 0,
-        ultimo_movimiento: data?.[0]?.fecha || null,
+        ultimo_movimiento: data?.[0]?.created_at || null,
         ultima_apertura: uc.ultima_apertura || null,
       };
     }));

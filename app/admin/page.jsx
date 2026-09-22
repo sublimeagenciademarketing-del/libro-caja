@@ -18,6 +18,8 @@ const diasDesde = (s) => {
 };
 const hace = (s) => { const n = diasDesde(s); return n === null ? '—' : n <= 0 ? 'hoy' : n === 1 ? 'ayer' : n < 60 ? `hace ${n} días` : fmt(s); };
 
+// Desde cuándo el app anota la última apertura: antes de esta fecha no hay dato.
+const DESDE_APERTURAS = '18/09/2026';
 // Actividad por último movimiento cargado: activo (≤7 días), sin actividad (8–30), inactivo (+30), nunca cargó.
 const ACTIVIDAD = {
   activo:  { label: 'En uso',        color: '#34d399' },
@@ -289,6 +291,11 @@ export default function AdminPage() {
           style={{ flexShrink: 0, padding: '5px 10px', borderRadius: 20, border: '1px solid rgba(165,180,252,0.35)', background: 'rgba(99,102,241,0.12)', color: copiado ? '#34d399' : '#a5b4fc', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
           {copiado ? '✓ Copiados' : `Copiar (${filtered.length})`}
         </button>
+      </div>
+
+      {/* Qué significa cada dato de la línea de actividad. */}
+      <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: -8, marginBottom: 14, lineHeight: 1.5 }}>
+        «Último movimiento» es cuándo lo cargó, no la fecha que escribió. Las aperturas se registran desde el {DESDE_APERTURAS}: antes de esa fecha figura «—».
       </div>
 
       {/* User list */}
