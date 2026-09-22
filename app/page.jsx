@@ -351,6 +351,16 @@ function buildCfgFromDB(uc) {
 }
 
 const mismaCuenta = (a, b) => (a || '').trim().toLowerCase() === (b || '').trim().toLowerCase();
+
+// Día de hoy y día de una fecha guardada, siempre en la hora del teléfono.
+const diaLocal = (d) => new Date(d).toLocaleDateString('en-CA');
+// Anota en la base que el usuario abrió el app, como mucho una vez por día.
+async function anotarApertura(userId, ultima) {
+  if (ultima && diaLocal(ultima) === diaLocal(Date.now())) return ultima;
+  const ahora = new Date().toISOString();
+  const { error } = await supabase.from('user_config').update({ ultima_apertura: ahora }).eq('user_id', userId);
+  return error ? ultima : ahora;
+}
 const claveNotif = (n) => `${n.tipo}|${n.label}|${n.fecha}`;
 
 // Invitación a activar los recordatorios: aparece una sola vez, cuando el
@@ -525,6 +535,7 @@ export default function Home() {
   const formRef = useRef(null);
   const [showInstall, setShowInstall] = useState(false);
   const [showConvertir, setShowConvertir] = useState(false);
+  const aperturaRef = useRef(null); // última apertura ya anotada, para no repetir
   const [notifPerm, setNotifPerm] = useState('unsupported');
   // Avisos de la campanita que el usuario ya abrió y vio (por dispositivo).
   // La campanita muestra siempre todo lo pendiente; el ícono del teléfono
@@ -625,10 +636,8 @@ export default function Home() {
         return;
       }
     }
-    // Última apertura, para el panel admin: se anota una vez por día.
-    if (!uc.ultima_apertura || String(uc.ultima_apertura).slice(0, 10) < new Date().toISOString().slice(0, 10)) {
-      supabase.from('user_config').update({ ultima_apertura: new Date().toISOString() }).eq('user_id', userId).then(() => {});
-    }
+    // Última apertura, para el panel admin: una vez por día, en hora de Paraguay.
+    anotarApertura(userId, uc.ultima_apertura).then(v => { aperturaRef.current = v; });
     const c = buildCfgFromDB(uc);
     setFechaRegistro(uc.fecha_registro || null);
     setCfg(c);
@@ -666,6 +675,18 @@ export default function Home() {
       setAdminBadge(contarRegistrosNuevos(configs, uc.admin_last_visit));
     }
   }
+
+  // El app vuelve al frente: si cambió el día, se vuelve a anotar la apertura.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const alVolver = () => {
+      if (document.visibilityState !== 'visible') return;
+      anotarApertura(userId, aperturaRef.current).then(v => { aperturaRef.current = v; });
+    };
+    document.addEventListener('visibilitychange', alVolver);
+    return () => document.removeEventListener('visibilitychange', alVolver);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     let onSwMessage;
