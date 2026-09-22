@@ -153,6 +153,18 @@ FEATURES.push(
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
   },
   {
+    grad: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+    title: 'Resumen del año',
+    desc: 'Cómo cerró cada mes, tu promedio y cuánto de tus ingresos ya está comprometido.',
+    svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 17V13M12 17V9M16 17V12"/></svg>,
+  },
+  {
+    grad: 'linear-gradient(135deg,#06b6d4,#3b82f6)',
+    title: 'Calculadora de cambio',
+    desc: 'Pasá de dólares o reales a guaraníes con la cotización del día, sin salir del app.',
+    svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 7h14M14 3l4 4-4 4"/><path d="M20 17H6M10 13l-4 4 4 4"/></svg>,
+  },
+  {
     grad: 'linear-gradient(135deg,#8b5cf6,#ec4899)',
     title: 'Una o dos cuentas',
     desc: 'Solo personal, o tu negocio y lo personal separados en el mismo app.',
@@ -192,6 +204,7 @@ const PREGUNTAS = [
   { q: '¿Alguien más puede ver mis números?', a: 'No. Cada usuario ve solo lo suyo. La base de datos tiene reglas que impiden ver datos de otra persona.' },
   { q: '¿Se puede hackear?', a: 'Ningún sistema serio promete un 100 %, y desconfiá del que lo haga. MiCaja usa la misma infraestructura que miles de apps en el mundo, con la conexión cifrada y los datos separados por usuario. Y como no guardamos tarjetas ni claves bancarias, no hay nada que un ladrón pueda usar.' },
   { q: '¿Puedo anotar dólares o reales?', a: 'Sí. Además de tus guaraníes, activás dólares y reales desde tu perfil. Podés cargar movimientos, gastos fijos, cuotas, cobros y deudas en esa moneda, y en el inicio deslizás el balance para ver cada una con su propia proyección. Nunca se mezclan ni se convierten solas; para hacer una cuenta rápida tenés una calculadora de cambio adentro del app.' },
+  { q: 'Me registré y no puedo entrar', a: 'Después de crear la cuenta te llega un correo para confirmarla: hasta que no toques el enlace no vas a poder entrar. Fijate también en Spam o Promociones. Si no te llegó, en la pantalla de ingreso podés pedir que te lo reenviemos o corregir el email.' },
   { q: '¿Funciona en iPhone y Android?', a: 'Sí, en los dos. Se instala en la pantalla de inicio como cualquier app y también funciona desde el navegador.' },
   { q: '¿Y si cambio de celular?', a: 'Entrás con tu email y tu contraseña desde el nuevo y está todo. Nada se guarda solo en el teléfono.' },
   { q: '¿Necesita internet?', a: 'Sí. Así tus datos quedan siempre guardados y los ves igual desde cualquier celular.' },
@@ -580,7 +593,7 @@ export default function LandingPage() {
                   </div>
                   <span style={{ fontWeight: 700, fontSize: 13 }}>Android · Chrome</span>
                 </div>
-                {['Abrí MiCaja en Chrome', 'Tocá el botón "Instalar"', 'Confirmá y listo'].map((t, i) => (
+                {['Abrí MiCaja en Chrome', 'Tocá el menú ⋮ (arriba a la derecha)', 'Elegí "Instalar app" o "Agregar a pantalla principal"'].map((t, i) => (
                   <div key={t} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 7 }}>
                     <span style={{ minWidth: 18, height: 18, borderRadius: 6, background: 'rgba(61,220,132,0.15)', color: '#3ddc84', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{i + 1}</span>
                     <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', lineHeight: 1.5 }}>{t}</span>
