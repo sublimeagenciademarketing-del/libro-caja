@@ -1,7 +1,7 @@
 {
   "name": "MiCaja",
   "short_name": "MiCaja",
-  "description": "Controlá tus ingresos, gastos, cuotas y deudas desde tu celular",
+  "description": "Controlá tus ingresos, gastos, cuotas, tarjetas, cobros y deudas desde tu celular",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0d1b2a",

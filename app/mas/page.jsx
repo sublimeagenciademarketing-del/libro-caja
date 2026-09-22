@@ -1239,6 +1239,9 @@ function Cuotas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                     </div>
                     <div className="row"><div className="field"><label>Frecuencia</label><div style={{ display: 'flex', gap: 6 }}>{['mensual','quincenal','semanal'].map(f => (<button key={f} type="button" onClick={() => setEditForm(prev => ({...prev, frecuencia: f}))} style={{ flex: 1, padding: '6px 0', borderRadius: 8, border: '1px solid', fontSize: 12, background: editForm.frecuencia === f ? 'rgba(96,165,250,0.2)' : 'transparent', borderColor: editForm.frecuencia === f ? 'rgba(96,165,250,0.5)' : 'rgba(255,255,255,0.15)', color: editForm.frecuencia === f ? '#93c5fd' : 'rgba(255,255,255,0.5)', cursor: 'pointer' }}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>))}</div></div></div>
                     <div className="row"><div className="field"><label>Cuenta</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({...f, cuenta: v}))} cfg={cfg} /></div></div>
+                    {opcionesMoneda && (
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: -4, marginBottom: 8, lineHeight: 1.5 }}>La moneda de una compra ya cargada no se cambia. Si te equivocaste, eliminá la compra y cargala de nuevo.</div>
+                    )}
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
                       <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
                       <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditCuota(p.id)}>Guardar</button>
@@ -2502,7 +2505,7 @@ function MonedasExtra({ userId }) {
               <div style={{ width: 36, height: 36, borderRadius: 10, background: on ? 'linear-gradient(135deg,#0ea5e9,#6366f1)' : 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 12, fontWeight: 800, color: on ? '#fff' : 'rgba(255,255,255,0.5)' }}>{info.simbolo}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{info.nombre} ({info.simbolo})</div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, lineHeight: 1.5 }}>{on ? 'Podés cargar movimientos en esta moneda.' : 'Apagado: el formulario no la ofrece.'}</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2, lineHeight: 1.5 }}>{on ? 'Podés cargar movimientos, gastos fijos, cuotas, cobros, deudas y metas en esta moneda.' : 'Apagado: no aparece en los formularios.'}</div>
               </div>
               <button type="button" role="switch" aria-checked={on} aria-label={info.nombre} className={`switch${on ? ' on' : ''}`} onClick={() => alternar(codigo)} disabled={ocupado || activas === null} />
             </div>
@@ -2510,7 +2513,7 @@ function MonedasExtra({ userId }) {
         })}
       </div>
       <div style={{ marginTop: 12, fontSize: 11, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>
-        Los movimientos en moneda extra se guardan aparte: no se suman ni se convierten a guaraníes. El balance y las proyecciones siguen en ₲.
+        Cada moneda se lleva aparte: nunca se suma ni se convierte a guaraníes. En el inicio deslizás el balance para ver cada una, con su propio "este mes" y su proyección. Las tarjetas de crédito siguen solo en ₲.
       </div>
     </div>
   );

@@ -149,7 +149,7 @@ FEATURES.push(
   {
     grad: 'linear-gradient(135deg,#0ea5e9,#6366f1)',
     title: 'Dólares y reales',
-    desc: 'Anotá lo que tenés en otra moneda, aparte de tus guaraníes, sin mezclar.',
+    desc: 'Llevá tus dólares y reales aparte de los guaraníes, cada uno con su balance.',
     svg: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
   },
   {
@@ -191,7 +191,7 @@ const PREGUNTAS = [
   { q: '¿Qué datos me piden?', a: 'Solo un email y una contraseña para entrar. Ni tarjeta, ni cuenta bancaria, ni documento. Dentro del app anotás lo que vos quieras: montos y descripciones.' },
   { q: '¿Alguien más puede ver mis números?', a: 'No. Cada usuario ve solo lo suyo. La base de datos tiene reglas que impiden ver datos de otra persona.' },
   { q: '¿Se puede hackear?', a: 'Ningún sistema serio promete un 100 %, y desconfiá del que lo haga. MiCaja usa la misma infraestructura que miles de apps en el mundo, con la conexión cifrada y los datos separados por usuario. Y como no guardamos tarjetas ni claves bancarias, no hay nada que un ladrón pueda usar.' },
-  { q: '¿Puedo anotar dólares o reales?', a: 'Sí. Además de tus guaraníes, activás dólares y reales desde tu perfil. Cada moneda se lleva por separado, sin conversiones ni mezclas, y en el inicio deslizás el balance para ver cada una.' },
+  { q: '¿Puedo anotar dólares o reales?', a: 'Sí. Además de tus guaraníes, activás dólares y reales desde tu perfil. Podés cargar movimientos, gastos fijos, cuotas, cobros y deudas en esa moneda, y en el inicio deslizás el balance para ver cada una con su propia proyección. Nunca se mezclan ni se convierten solas; para hacer una cuenta rápida tenés una calculadora de cambio adentro del app.' },
   { q: '¿Funciona en iPhone y Android?', a: 'Sí, en los dos. Se instala en la pantalla de inicio como cualquier app y también funciona desde el navegador.' },
   { q: '¿Y si cambio de celular?', a: 'Entrás con tu email y tu contraseña desde el nuevo y está todo. Nada se guarda solo en el teléfono.' },
   { q: '¿Necesita internet?', a: 'Sí. Así tus datos quedan siempre guardados y los ves igual desde cualquier celular.' },

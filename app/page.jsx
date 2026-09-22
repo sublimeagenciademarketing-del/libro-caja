@@ -420,7 +420,7 @@ function NovedadMonedas({ userId, cfg, onIr }) {
       <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, fontWeight: 800, color: '#fff' }}>US$</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Nuevo: dólares y reales</div>
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, lineHeight: 1.4 }}>Anotá movimientos en US$ o R$, aparte de tus guaraníes. Se activa en Perfil.</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, lineHeight: 1.4 }}>Llevá tus dólares y reales aparte de los guaraníes, con su propio balance. Se activa en Perfil.</div>
       </div>
       <button type="button" onClick={() => { cerrar(); onIr?.(); }} style={{ padding: '8px 12px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#0ea5e9,#6366f1)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Ver</button>
       <button type="button" onClick={cerrar} aria-label="Cerrar" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 18, cursor: 'pointer', padding: '0 2px', lineHeight: 1, flexShrink: 0 }}>✕</button>
