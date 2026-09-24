@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas, puedeTarjetaPeriodo } from '../../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas, puedeTarjetaPeriodo, puedeRadiografia } from '../../lib/config';
 import { MONEDAS, esGuarani, fmtMoneda, leerMonto } from '../../lib/monedas';
 import Convertidor, { BotonConvertir } from '../../components/Convertidor';
 import Cartel, { btnPrimario, btnSecundario, textoCartel } from '../../components/Cartel';
@@ -156,7 +156,7 @@ function expandirCobrosDelMes(cobros, y, m0, hoy, mesStart, mesEnd, esMesActual 
 }
 
 /* ─── RESUMEN ANUAL ─── */
-function Resumen({ userId, userEmail, cfg }) {
+function Resumen({ userId, userEmail, cfg, onIr }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [projection, setProjection] = useState(null);
@@ -165,6 +165,8 @@ function Resumen({ userId, userEmail, cfg }) {
   const [porMoneda, setPorMoneda] = useState({});
   const [compromisos, setCompromisos] = useState(null);
   const [verInfo, setVerInfo] = useState(false);
+  const [radio, setRadio] = useState(null);           // datos de "Dónde estás hoy"
+  const [cuentaRadio, setCuentaRadio] = useState(cfg.c1); // en cuenta doble, de qué cuenta se muestra
   const anio = new Date().getFullYear();
   const ampliado = puedeResumenAmpliado(userEmail);
   const resumenV2 = puedeResumenCuentas(userEmail);
@@ -256,6 +258,28 @@ function Resumen({ userId, userEmail, cfg }) {
       };
       setCompromisos({ ...compromisosDe(null), c1: compromisosDe(cfg.c1), c2: cfg.single ? null : compromisosDe(cfg.c2) });
 
+      // "Dónde estás hoy": se guardan las listas y el detalle se arma al mostrar,
+      // así se puede ver por cuenta sin volver a consultar la base.
+      if (puedeRadiografia(userEmail)) {
+        const [cuotasP, tarjetas, consumos, deudasP, metasP] = await Promise.all([
+          supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
+          supabase.from('credit_cards').select('id, nombre, fecha_limite_pago').eq('user_id', userId).order('created_at'),
+          supabase.from('card_expenses').select('monto, card_id, cuenta, fecha_compra, estado').eq('user_id', userId).neq('estado', 'pagado'),
+          supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda').eq('user_id', userId).neq('estado', 'pagado'),
+          supabase.from('savings_goals').select('monto_meta, monto_actual, moneda').eq('user_id', userId),
+        ]);
+        setRadio({
+          y, mo, hoy,
+          fijos: r4.data || [],
+          cuotas: (cuotasP.data || []).filter(c => c.installment_purchases).map(c => ({ monto: c.monto, cuenta: c.installment_purchases.cuenta, moneda: monedaDe(c.installment_purchases) })),
+          tarjetas: tarjetas.data || [],
+          consumos: consumos.data || [],
+          deudas: deudasP.data || [],
+          cobros: (r1.data || []).filter(c => c.activo !== false),
+          metas: (metasP.data || []).filter(m => (m.monto_actual || 0) < (m.monto_meta || 0)),
+        });
+      }
+
       setLoading(false);
     }
     load();
@@ -342,6 +366,80 @@ function Resumen({ userId, userEmail, cfg }) {
           <div className="mas-section-title">Resumen {anio}</div>
         </div>
       </div>
+
+      {/* Dónde estás hoy: una línea por sección, solo con lo que tiene algo cargado.
+          En cuenta doble se muestra de a una cuenta, para no mezclar. */}
+      {puedeRadiografia(userEmail) && !loading && radio && (() => {
+        const de = (valor) => cfg.single || mismaCuenta(valor, cuentaRadio);
+        const { y: ry, mo: rmo, hoy: rhoy } = radio;
+        const icono = (id) => {
+          const t = TABS.find(x => x.id === id);
+          return <span style={{ width: 28, height: 28, borderRadius: 9, background: `linear-gradient(135deg,${t.grad[0]},${t.grad[1]})`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transform: 'scale(0.8)' }}>{t.svg}</span>;
+        };
+        const filas = [];
+        const fijos = radio.fijos.filter(g => de(g.cuenta));
+        if (fijos.length) filas.push({ id: 'gastos', titulo: 'Gastos fijos', valor: textoPorMoneda(fijos, g => cadenciaEnMes(g, ry, rmo, rhoy).length * (g.monto || 0)), detalle: 'por mes' });
+
+        const cuotas = radio.cuotas.filter(c => de(c.cuenta));
+        if (cuotas.length) filas.push({ id: 'cuotas', titulo: 'Cuotas', valor: textoPorMoneda(cuotas, c => c.monto || 0), detalle: `${cuotas.length} cuota${cuotas.length !== 1 ? 's' : ''} por pagar` });
+
+        radio.tarjetas.forEach(t => {
+          const suyos = radio.consumos.filter(c => c.card_id === t.id);
+          const mios = suyos.filter(c => de(c.cuenta));
+          if (!mios.length) return;
+          const pendiente = mios.reduce((s, c) => s + (c.monto || 0), 0);
+          const totalTarjeta = suyos.reduce((s, c) => s + (c.monto || 0), 0);
+          const periodo = t.fecha_limite_pago ? mios.filter(c => mesDe(c.fecha_compra || '') === mesDe(t.fecha_limite_pago)).reduce((s, c) => s + (c.monto || 0), 0) : 0;
+          const partes = [];
+          if (periodo > 0) partes.push(`${fmt(periodo)} vence el ${fmtFecha(t.fecha_limite_pago)}`);
+          else partes.push('total pendiente');
+          if (!cfg.single && totalTarjeta !== pendiente) partes.push(`la tarjeta debe ${fmt(totalTarjeta)} en total`);
+          filas.push({ id: 'tarjetas', cardId: t.id, titulo: t.nombre, valor: fmt(pendiente), detalle: partes.join(' · ') });
+        });
+
+        const deudas = radio.deudas.filter(d => de(d.cuenta));
+        if (deudas.length) filas.push({ id: 'deudas', titulo: 'Deudas', valor: textoPorMoneda(deudas, d => (d.monto_total || 0) - (d.monto_pagado || 0)), detalle: 'te falta pagar' });
+
+        const cobros = radio.cobros.filter(c => de(c.cuenta));
+        if (cobros.length) filas.push({ id: 'cobros', titulo: 'Te deben', valor: textoPorMoneda(cobros, c => esRecurrente(c) ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length * (c.monto || 0) : (c.estado === 'pendiente' ? (c.monto || 0) : 0)), detalle: 'este mes', bueno: true });
+
+        // Las metas de ahorro no se dividen por cuenta: son del usuario.
+        if (radio.metas.length) filas.push({ id: 'metas', titulo: 'Metas de ahorro', valor: textoPorMoneda(radio.metas, m => (m.monto_meta || 0) - (m.monto_actual || 0)), detalle: `te falta para ${radio.metas.length} meta${radio.metas.length !== 1 ? 's' : ''}` });
+
+        if (!filas.length) return null;
+        return (
+          <div style={{ ...tarjeta, padding: '14px 12px' }}>
+            <div style={{ ...titulo, paddingLeft: 4, marginBottom: cfg.single ? 10 : 8 }}>Dónde estás hoy</div>
+            {!cfg.single && (
+              <div style={{ display: 'flex', gap: 6, margin: '0 4px 10px' }}>
+                {[{ c: cfg.c1, l: cfg.l1 }, { c: cfg.c2, l: cfg.l2 }].map(({ c, l }) => {
+                  const on = mismaCuenta(c, cuentaRadio);
+                  return (
+                    <button key={c} type="button" onClick={() => setCuentaRadio(c)}
+                      style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: `1px solid ${on ? 'rgba(165,180,252,0.6)' : 'rgba(255,255,255,0.12)'}`, background: on ? 'rgba(99,102,241,0.2)' : 'rgba(255,255,255,0.04)', color: on ? '#a5b4fc' : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {l}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {filas.map((f, i) => (
+                <button key={i} type="button" onClick={() => onIr?.(f.id, f.cardId)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', background: 'none', border: 'none', borderRadius: 10, padding: '8px 4px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  {icono(f.id)}
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.titulo}</span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.detalle}</span>
+                  </span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: f.bueno ? '#34d399' : '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{f.valor}</span>
+                  <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12, flexShrink: 0 }}>›</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {ampliado && !loading && esteMes && esteMes.tiene && porCuentas && (
         <div style={tarjeta}>
@@ -2104,7 +2202,7 @@ function fechaDePago(card, fechaCompra, desfase = 0) {
 // Mes en que se paga una cuota ya guardada ('AAAA-MM').
 const mesDePagoGuardado = (exp) => mesDe(exp.fecha_compra || '');
 
-function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
+function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir = null }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const { recortar, verMas } = useVerMas(puedeVerMas(userEmail));
   // Compra de tarjeta ya pagada del todo: su fecha es la de su última cuota.
@@ -2138,6 +2236,8 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   }, [userId]);
 
   useEffect(() => { load(); }, [load]);
+  // Si se llegó desde el resumen tocando una tarjeta, se abre esa.
+  useEffect(() => { if (abrir) setExpanded(abrir); }, [abrir]);
 
   async function loadExpenses(cardId) {
     const { data } = await supabase.from('card_expenses').select('*').eq('card_id', cardId).order('fecha_compra', { ascending: false });
@@ -3035,6 +3135,7 @@ export default function Mas() {
   const [cfg, setCfg] = useState(null);
   const [soloLectura, setSoloLectura] = useState(false);
   const [showConvertir, setShowConvertir] = useState(false);
+  const [tarjetaAbrir, setTarjetaAbrir] = useState(null); // tarjeta a abrir al venir desde el resumen
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -3068,10 +3169,10 @@ export default function Mas() {
   const email = session.user.email;
   const renderTab = () => {
     switch (activeTab) {
-      case 'resumen': return <Resumen userId={session.user.id} userEmail={email} cfg={cfg} />;
+      case 'resumen': return <Resumen userId={session.user.id} userEmail={email} cfg={cfg} onIr={(tab, cardId) => { setActiveTab(tab); setTarjetaAbrir(cardId || null); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />;
       case 'gastos': return <GastosFijos userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'cuotas': return <Cuotas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
-      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
+      case 'tarjetas': return <Tarjetas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} abrir={tarjetaAbrir} />;
       case 'cobros': return <Cobros userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'deudas': return <Deudas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
       case 'metas': return <Metas userId={session.user.id} userEmail={email} cfg={cfg} soloLectura={soloLectura} />;
