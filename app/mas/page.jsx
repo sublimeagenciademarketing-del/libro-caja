@@ -391,9 +391,9 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
           const totalTarjeta = suyos.reduce((s, c) => s + (c.monto || 0), 0);
           const periodo = t.fecha_limite_pago ? mios.filter(c => mesDe(c.fecha_compra || '') === mesDe(t.fecha_limite_pago)).reduce((s, c) => s + (c.monto || 0), 0) : 0;
           const partes = [];
-          if (periodo > 0) partes.push(`${fmt(periodo)} vence el ${fmtFecha(t.fecha_limite_pago)}`);
+          if (periodo > 0) partes.push(`vence el ${fmtFecha(t.fecha_limite_pago)}: ${fmt(periodo)}`);
           else partes.push('total pendiente');
-          if (!cfg.single && totalTarjeta !== pendiente) partes.push(`la tarjeta debe ${fmt(totalTarjeta)} en total`);
+          if (!cfg.single && totalTarjeta !== pendiente) partes.push(`la tarjeta debe ${fmt(totalTarjeta)}`);
           filas.push({ id: 'tarjetas', cardId: t.id, titulo: t.nombre, valor: fmt(pendiente), detalle: partes.join(' · ') });
         });
 
@@ -401,7 +401,9 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         if (deudas.length) filas.push({ id: 'deudas', titulo: 'Deudas', valor: textoPorMoneda(deudas, d => (d.monto_total || 0) - (d.monto_pagado || 0)), detalle: 'te falta pagar' });
 
         const cobros = radio.cobros.filter(c => de(c.cuenta));
-        if (cobros.length) filas.push({ id: 'cobros', titulo: 'Te deben', valor: textoPorMoneda(cobros, c => esRecurrente(c) ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length * (c.monto || 0) : (c.estado === 'pendiente' ? (c.monto || 0) : 0)), detalle: 'este mes', bueno: true });
+        const finMesRadio = enMes(ry, rmo, 31);
+        const debenAlgo = cobros.some(c => esRecurrente(c) ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length : (c.estado === 'pendiente' && (!c.fecha_esperada || c.fecha_esperada <= finMesRadio)));
+        if (debenAlgo) filas.push({ id: 'cobros', titulo: 'Te deben', valor: textoPorMoneda(cobros, c => esRecurrente(c) ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length * (c.monto || 0) : ((c.estado === 'pendiente' && (!c.fecha_esperada || c.fecha_esperada <= finMesRadio)) ? (c.monto || 0) : 0)), detalle: 'este mes y atrasados', bueno: true });
 
         // Las metas de ahorro no se dividen por cuenta: son del usuario.
         if (radio.metas.length) filas.push({ id: 'metas', titulo: 'Metas de ahorro', valor: textoPorMoneda(radio.metas, m => (m.monto_meta || 0) - (m.monto_actual || 0)), detalle: `te falta para ${radio.metas.length} meta${radio.metas.length !== 1 ? 's' : ''}` });
@@ -430,7 +432,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
                   {icono(f.id)}
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.titulo}</span>
-                    <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.detalle}</span>
+                    <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1, lineHeight: 1.45 }}>{f.detalle}</span>
                   </span>
                   <span style={{ fontSize: 13, fontWeight: 800, color: f.bueno ? '#34d399' : '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{f.valor}</span>
                   <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 12, flexShrink: 0 }}>›</span>
@@ -1548,8 +1550,11 @@ function Cobros({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   }
 
   const h = deISO(hoy); const anio = h.getFullYear(), mes0 = h.getMonth();
+  // Lo que te deben este mes: lo que vence en el mes y lo que quedó atrasado.
+  // Un cobro de una sola vez con fecha de más adelante no entra todavía.
+  const finDeMes = enMes(anio, mes0, 31);
   const pendiente = textoPorMoneda(items.filter(i => i.activo !== false), i => {
-    if (!esRecurrente(i)) return i.estado === 'pendiente' ? i.monto : 0;
+    if (!esRecurrente(i)) return (i.estado === 'pendiente' && (!i.fecha_esperada || i.fecha_esperada <= finDeMes)) ? i.monto : 0;
     return ocurrenciasEnMes(i, anio, mes0, hoy, { incluirAtrasadas: true }).length * i.monto;
   });
 
