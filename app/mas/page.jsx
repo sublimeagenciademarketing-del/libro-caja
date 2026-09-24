@@ -266,7 +266,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
           supabase.from('credit_cards').select('id, nombre, fecha_limite_pago').eq('user_id', userId).order('created_at'),
           supabase.from('card_expenses').select('monto, card_id, cuenta, fecha_compra, estado').eq('user_id', userId).neq('estado', 'pagado'),
           supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda, fecha_limite').eq('user_id', userId).neq('estado', 'pagado'),
-          supabase.from('savings_goals').select('monto_meta, monto_actual, moneda').eq('user_id', userId),
+          supabase.from('savings_goals').select('monto_meta, monto_actual, moneda, cuenta').eq('user_id', userId),
         ]);
         setRadio({
           y, mo, hoy,
@@ -424,8 +424,8 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
             detalle: mesCobros === totalCobros ? 'todo vence este mes' : `este mes: ${mesCobros}`, bueno: true });
         }
 
-        // Las metas de ahorro no se dividen por cuenta: son del usuario.
-        if (radio.metas.length) filas.push({ id: 'metas', titulo: 'Metas de ahorro', valor: textoPorMoneda(radio.metas, m => (m.monto_meta || 0) - (m.monto_actual || 0)), detalle: `te falta para ${radio.metas.length} meta${radio.metas.length !== 1 ? 's' : ''}` });
+        const metas = radio.metas.filter(m => de(m.cuenta));
+        if (metas.length) filas.push({ id: 'metas', titulo: 'Metas de ahorro', valor: textoPorMoneda(metas, m => (m.monto_meta || 0) - (m.monto_actual || 0)), detalle: `te falta para ${metas.length} meta${metas.length !== 1 ? 's' : ''}` });
 
         if (!filas.length) return null;
         return (
@@ -1933,7 +1933,7 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
   const [showForm, setShowForm] = useState(false);
   const [aportarId, setAportarId] = useState(null);
   const [aporte, setAporte] = useState({ monto: '', montoDisplay: '' });
-  const [form, setForm] = useState({ nombre: '', monto_meta: '', metaDisplay: '', moneda: 'PYG' });
+  const [form, setForm] = useState({ nombre: '', monto_meta: '', metaDisplay: '', moneda: 'PYG', cuenta: cfg?.c1 });
   const monedaAporte = monedaDe(items.find(i => i.id === aportarId));
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -1965,8 +1965,8 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
   async function handleAdd(e) {
     e.preventDefault();
     if (!form.nombre.trim() || !form.monto_meta) return;
-    await supabase.from('savings_goals').insert({ user_id: userId, nombre: form.nombre.trim(), monto_meta: parseFloat(form.monto_meta), moneda: form.moneda || 'PYG' });
-    setForm({ nombre: '', monto_meta: '', metaDisplay: '', moneda: 'PYG' });
+    await supabase.from('savings_goals').insert({ user_id: userId, nombre: form.nombre.trim(), monto_meta: parseFloat(form.monto_meta), moneda: form.moneda || 'PYG', cuenta: form.cuenta || cfg?.c1 });
+    setForm({ nombre: '', monto_meta: '', metaDisplay: '', moneda: 'PYG', cuenta: cfg?.c1 });
     setShowForm(false);
     load();
   }
@@ -2030,6 +2030,7 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
     await supabase.from('savings_goals').update({
       nombre: editForm.nombre.trim(),
       monto_meta: parseFloat(editForm.monto_meta),
+      cuenta: editForm.cuenta || cfg?.c1,
     }).eq('id', id);
     setEditingId(null);
     load();
@@ -2064,6 +2065,9 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
               <input type="text" inputMode={form.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num" value={form.metaDisplay} onChange={handleMetaMonto} placeholder={form.moneda === 'PYG' ? '0' : '0,00'} required />
             </div>
           </div>
+          {cfg && !cfg.single && (
+            <div className="row"><div className="field"><label>¿De qué cuenta es?</label><CuentaToggle value={form.cuenta} onChange={v => setForm(f => ({ ...f, cuenta: v }))} cfg={cfg} /></div></div>
+          )}
           <button className="add-btn" type="submit">Crear meta</button>
         </form>
       )}
@@ -2104,13 +2108,13 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
                   </div>
                   <div className="meta" style={{ flex: 1 }}>
                     <div className="cat">{i.nombre}</div>
-                    <div className="sub">Meta: {fm(i.monto_meta)}</div>
+                    <div className="sub">Meta: {fm(i.monto_meta)}{cfg && !cfg.single ? ` · ${etiquetaCuenta(i.cuenta, cfg)}` : ''}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {!soloLectura && <button className="del" style={{ fontSize: 12, color: '#34d399', borderColor: 'rgba(52,211,153,0.3)' }} onClick={() => setAportarId(aportarId === i.id ? null : i.id)} title="Aportar">+</button>}
                     <button className="del" style={{ fontSize: 11, color: '#94a3b8', borderColor: 'rgba(148,163,184,0.3)' }} onClick={() => toggleHistorial(i.id)} title="Historial">≡</button>
                     {!soloLectura && <button className="del" style={{ color: '#93c5fd', borderColor: 'rgba(147,197,253,0.3)', background: 'rgba(147,197,253,0.1)' }} title="Editar"
-                      onClick={() => { setEditingId(i.id); setEditForm({ nombre: i.nombre, monto_meta: String(i.monto_meta), metaDisplay: montoParaEditar(i.monto_meta, monedaDe(i)) }); }}>✎</button>}
+                      onClick={() => { setEditingId(i.id); setEditForm({ nombre: i.nombre, monto_meta: String(i.monto_meta), metaDisplay: montoParaEditar(i.monto_meta, monedaDe(i)), cuenta: i.cuenta || cfg?.c1 }); }}>✎</button>}
                     {!soloLectura && <button className="del" onClick={() => handleDelete(i.id)} title="Eliminar">✕</button>}
                   </div>
                 </div>
@@ -2182,6 +2186,9 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <div className="row"><div className="field"><label>Nombre de la meta</label><input type="text" value={editForm.nombre} onChange={e => setEditForm(f => ({...f, nombre: e.target.value}))} /></div></div>
                     <div className="row"><div className="field"><label>Monto objetivo ({simboloDe(monedaDe(i))})</label><input type="text" inputMode={monedaDe(i) === 'PYG' ? 'numeric' : 'decimal'} className="num" value={editForm.metaDisplay ?? ''} onChange={e => { const { valor, display } = montoEscrito(e.target.value, monedaDe(i)); setEditForm(f => ({ ...f, monto_meta: valor, metaDisplay: display })); }} /></div></div>
+                    {cfg && !cfg.single && (
+                      <div className="row"><div className="field"><label>¿De qué cuenta es?</label><CuentaToggle value={editForm.cuenta} onChange={v => setEditForm(f => ({ ...f, cuenta: v }))} cfg={cfg} /></div></div>
+                    )}
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', marginTop: 8 }}>
                       <button className="del" style={{ color: '#94a3b8', width: 'auto', padding: '0 12px', fontSize: 12 }} onClick={() => setEditingId(null)}>Cancelar</button>
                       <button className="add-btn" style={{ margin: 0, fontSize: 12, padding: '6px 14px' }} onClick={() => handleSaveEditMeta(i.id)}>Guardar</button>
