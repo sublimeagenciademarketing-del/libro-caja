@@ -2221,7 +2221,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       let lista = expenses[cardId];
       if (!lista) { const { data } = await supabase.from('card_expenses').select('*').eq('card_id', cardId); lista = data || []; }
       const cambios = calcularAcomodos(lista, { id: cardId, ...nuevaCard });
-      if (cambios.length) setAcomodar({ cardId, nombre: nuevaCard.nombre, cambios });
+      if (cambios.length) setAcomodar({ cardId, nombre: nuevaCard.nombre, cambios, elegidos: cambios.map(() => true) });
     }
   }
 
@@ -2254,8 +2254,9 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   }
 
   async function aplicarAcomodos() {
-    const { cardId, cambios } = acomodar;
-    const filas = cambios.flatMap(c => c.filas);
+    const { cardId, cambios, elegidos } = acomodar;
+    const filas = cambios.filter((_, i) => elegidos[i]).flatMap(c => c.filas);
+    if (!filas.length) { setAcomodar(null); return; }
     await Promise.all(filas.map(f => supabase.from('card_expenses').update({ fecha_compra: f.fecha_compra }).eq('id', f.id)));
     setAcomodar(null);
     loadExpenses(cardId);
@@ -2491,7 +2492,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                     {verPeriodo && expForm.fecha_compra && (() => {
                       // El banco corre el cierre todos los meses: el app propone y el usuario corrige.
                       const pago = fechaDePago(card, expForm.fecha_compra, expForm.desfase || 0);
-                      const otro = fechaDePago(card, expForm.fecha_compra, (expForm.desfase || 0) === 0 ? 1 : -1);
+                      const otro = fechaDePago(card, expForm.fecha_compra, (expForm.desfase || 0) === 0 ? 1 : 0);
                       if (!pago) return null;
                       return (
                         <div style={{ margin: '-4px 0 12px', fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>
@@ -2608,22 +2609,32 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       {acomodar && (
         <Cartel icono="📅" titulo="¿Acomodo estos consumos?" onCerrar={() => setAcomodar(null)}
           botones={<>
-            <button type="button" onClick={aplicarAcomodos} style={btnPrimario}>Sí, acomodarlos</button>
-            <button type="button" onClick={() => setAcomodar(null)} style={btnSecundario}>Dejar como están</button>
+            <button type="button" onClick={aplicarAcomodos} disabled={!acomodar.elegidos.some(Boolean)} style={{ ...btnPrimario, opacity: acomodar.elegidos.some(Boolean) ? 1 : 0.5 }}>
+              Acomodar {acomodar.elegidos.filter(Boolean).length === acomodar.cambios.length ? "todos" : `(${acomodar.elegidos.filter(Boolean).length})`}
+            </button>
+            <button type="button" onClick={() => setAcomodar(null)} style={btnSecundario}>Dejar todo como está</button>
           </>}>
-          <p style={textoCartel}>Con el cierre nuevo, {acomodar.cambios.length === 1 ? "este consumo pasaría" : `estos ${acomodar.cambios.length} consumos pasarían`} a otro período:</p>
+          <p style={textoCartel}>Con el cierre nuevo, {acomodar.cambios.length === 1 ? "este consumo cambiaría" : `estos ${acomodar.cambios.length} consumos cambiarían`} de período. Destildá el que quieras dejar donde está:</p>
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8, textAlign: "left" }}>
-            {acomodar.cambios.map((c, i) => (
-              <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{c.descripcion}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#f87171", whiteSpace: "nowrap" }}>{fmt(c.monto)}</span>
-                </div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
-                  Compra del {fmtFecha(c.compra)} · se pagaba en {MESES[deISO(c.antes).getMonth()]} → pasa a {MESES[deISO(c.despues).getMonth()]}
-                </div>
-              </div>
-            ))}
+            {acomodar.cambios.map((c, i) => {
+              const on = acomodar.elegidos[i];
+              return (
+              <button key={i} type="button"
+                onClick={() => setAcomodar(a => ({ ...a, elegidos: a.elegidos.map((v, j) => (j === i ? !v : v)) }))}
+                style={{ width: "100%", textAlign: "left", background: on ? "rgba(99,102,241,0.12)" : "rgba(255,255,255,0.04)", border: `1px solid ${on ? "rgba(99,102,241,0.35)" : "rgba(255,255,255,0.08)"}`, borderRadius: 12, padding: "10px 12px", cursor: "pointer", fontFamily: "inherit", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span style={{ width: 18, height: 18, borderRadius: 5, flexShrink: 0, marginTop: 1, border: `1px solid ${on ? "#a5b4fc" : "rgba(255,255,255,0.3)"}`, background: on ? "#6366f1" : "transparent", color: "#fff", fontSize: 12, lineHeight: "16px", textAlign: "center" }}>{on ? "✓" : ""}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{c.descripcion}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#f87171", whiteSpace: "nowrap" }}>{fmt(c.monto)}</span>
+                  </span>
+                  <span style={{ display: "block", fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
+                    Compra del {fmtFecha(c.compra)} · se pagaba en {MESES[deISO(c.antes).getMonth()]} → pasa a {MESES[deISO(c.despues).getMonth()]}
+                  </span>
+                </span>
+              </button>
+              );
+            })}
           </div>
         </Cartel>
       )}
