@@ -351,7 +351,7 @@ function DemoDoble({ activo }) {
               <span style={demoNum('#f87171', 11)}><Counter to={c.pagar} active={activo} prefix="₲ " sign="−" /></span>
             </div>
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', gap: 4 }}>
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado</span>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 600 }}>Resultado esperado</span>
               <span style={demoNum('#34d399', 12, 800)}><Counter to={c.result} active={activo} prefix="₲ " sign="+" /></span>
             </div>
           </div>

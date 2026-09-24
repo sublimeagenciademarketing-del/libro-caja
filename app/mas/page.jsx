@@ -3,9 +3,10 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas } from '../../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas, puedeTarjetaPeriodo } from '../../lib/config';
 import { MONEDAS, esGuarani, fmtMoneda, leerMonto } from '../../lib/monedas';
 import Convertidor, { BotonConvertir } from '../../components/Convertidor';
+import Cartel, { btnPrimario, btnSecundario, textoCartel } from '../../components/Cartel';
 import { estadoPush, activarPush, desuscribirPush } from '../../lib/push-cliente';
 import { sumarMeses } from '../../lib/fechas';
 import { hoyISO, deISO, mesDe, enMes, sumarDias, siguiente, proximoDe, esRecurrente, estadoDe, textoEstado, ocurrenciasEnMes, cadenciaEnMes, alPagar, alRevertir } from '../../lib/recurrencia';
@@ -2075,6 +2076,34 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
 }
 
 /* ─── TARJETAS DE CRÉDITO ─── */
+// En card_expenses, fecha_compra guarda el MES EN QUE SE PAGA esa cuota (no la
+// fecha de compra); la compra real va en fecha_operacion. Estas funciones
+// ubican una compra en su período usando el cierre y el límite de pago que el
+// usuario cargó en la tarjeta. El banco corre esas fechas todos los meses, así
+// que el app propone y el usuario puede moverlo a mano.
+
+// Cuántos meses hay que sumarle a la fecha de compra para llegar al mes en que
+// se paga la primera cuota. Sin cierre cargado se mantiene el criterio viejo: un mes.
+function mesesHastaPago(card, fechaCompra) {
+  if (!card?.fecha_cierre || !card?.fecha_limite_pago || !fechaCompra) return 1;
+  const diaCierre = deISO(card.fecha_cierre).getDate();
+  const cierre = deISO(card.fecha_cierre), pago = deISO(card.fecha_limite_pago);
+  // Distancia entre el cierre y su vencimiento (normalmente el mes siguiente).
+  const gap = (pago.getFullYear() - cierre.getFullYear()) * 12 + (pago.getMonth() - cierre.getMonth());
+  // Si la compra es posterior al día de cierre, entra en el período siguiente.
+  return (deISO(fechaCompra).getDate() > diaCierre ? 1 : 0) + Math.max(gap, 0);
+}
+// Fecha en que se pagaría una compra, para mostrarla al cargar.
+function fechaDePago(card, fechaCompra, desfase = 0) {
+  if (!fechaCompra) return null;
+  const meses = mesesHastaPago(card, fechaCompra) + desfase;
+  const destino = sumarMeses(deISO(fechaCompra), meses);
+  const dia = card?.fecha_limite_pago ? deISO(card.fecha_limite_pago).getDate() : (Number(card?.dia_vencimiento_pago) || destino.getDate());
+  return enMes(destino.getFullYear(), destino.getMonth(), dia);
+}
+// Mes en que se paga una cuota ya guardada ('AAAA-MM').
+const mesDePagoGuardado = (exp) => mesDe(exp.fecha_compra || '');
+
 function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const cfg = cfgProp || getUserConfig(userEmail);
   const { recortar, verMas } = useVerMas(puedeVerMas(userEmail));
@@ -2090,12 +2119,21 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   const [cicloForm, setCicloForm] = useState({ fecha_cierre: '', fecha_limite_pago: '' });
   const [expandedGrupo, setExpandedGrupo] = useState({});
   const [cardForm, setCardForm] = useState({ nombre: '', fecha_cierre: '', fecha_limite_pago: '' });
-  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: hoyISO(), cuotas: '1', cuenta: cfg.c1 });
+  const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: hoyISO(), cuotas: '1', cuenta: cfg.c1, desfase: 0 });
+  const verPeriodo = puedeTarjetaPeriodo(userEmail);
+  const [acomodar, setAcomodar] = useState(null); // { card, cambios: [...] } al editar el ciclo
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('credit_cards').select('*').eq('user_id', userId).order('created_at');
     setCards(data || []);
+    // Los consumos se traen de entrada: el encabezado y el total del período se
+    // muestran sin tener que abrir la tarjeta.
+    const { data: todos } = await supabase.from('card_expenses').select('*').eq('user_id', userId).order('fecha_compra', { ascending: false });
+    const porTarjeta = {};
+    (data || []).forEach(c => { porTarjeta[c.id] = []; });
+    (todos || []).forEach(e => { (porTarjeta[e.card_id] ||= []).push(e); });
+    setExpenses(porTarjeta);
     setLoading(false);
   }, [userId]);
 
@@ -2138,16 +2176,21 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
     const numCuotas = parseInt(expForm.cuotas) || 1;
     const montoPorCuota = Math.round(totalMonto / numCuotas);
     const baseDate = new Date(expForm.fecha_compra + 'T12:00:00');
+    const card = cards.find(c => c.id === cardId);
+    // Meses hasta el pago de la primera cuota: según el cierre de la tarjeta,
+    // más el corrimiento que haya elegido el usuario.
+    const primerMes = verPeriodo ? mesesHastaPago(card, expForm.fecha_compra) + (expForm.desfase || 0) : 1;
     const grupoId = crypto.randomUUID();
     const rows = [];
     for (let i = 0; i < numCuotas; i++) {
       const d = new Date(baseDate);
-      d.setTime(sumarMeses(baseDate, i + 1).getTime());
+      d.setTime(sumarMeses(baseDate, primerMes + i).getTime());
       rows.push({
         user_id: userId, card_id: cardId,
         descripcion: expForm.descripcion.trim(),
         monto: montoPorCuota,
         fecha_compra: d.toISOString().slice(0, 10),
+        fecha_operacion: expForm.fecha_compra,
         cuotas: numCuotas,
         numero_cuota: i + 1,
         grupo_id: grupoId,
@@ -2155,7 +2198,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
       });
     }
     await supabase.from('card_expenses').insert(rows);
-    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: hoyISO(), cuotas: '1', cuenta: cfg.c1 });
+    setExpForm({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: hoyISO(), cuotas: '1', cuenta: cfg.c1, desfase: 0 });
     setShowExpForm(null);
     loadExpenses(cardId);
   }
@@ -2163,15 +2206,59 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
   async function handleEditCiclo(e, cardId) {
     e.preventDefault();
     if (!cicloForm.fecha_cierre || !cicloForm.fecha_limite_pago) return;
-    await supabase.from('credit_cards').update({
+    const nuevaCard = {
       nombre: cicloForm.nombre.trim(),
       fecha_cierre: cicloForm.fecha_cierre,
       fecha_limite_pago: cicloForm.fecha_limite_pago,
       dia_cierre: deISO(cicloForm.fecha_cierre).getDate(),
       dia_vencimiento_pago: deISO(cicloForm.fecha_limite_pago).getDate(),
-    }).eq('id', cardId);
+    };
+    await supabase.from('credit_cards').update(nuevaCard).eq('id', cardId);
     setEditCiclo(null);
-    load();
+    await load();
+    // Con el cierre nuevo, ¿algún consumo sin pagar debería cambiar de período?
+    if (verPeriodo) {
+      let lista = expenses[cardId];
+      if (!lista) { const { data } = await supabase.from('card_expenses').select('*').eq('card_id', cardId); lista = data || []; }
+      const cambios = calcularAcomodos(lista, { id: cardId, ...nuevaCard });
+      if (cambios.length) setAcomodar({ cardId, nombre: nuevaCard.nombre, cambios });
+    }
+  }
+
+  // Consumos sin pagar que, con el cierre nuevo, caerían en otro mes.
+  // Solo los que tienen guardada la fecha real de compra y son de los últimos meses.
+  function calcularAcomodos(lista, card) {
+    const desde = sumarMeses(new Date(), -3).toISOString().slice(0, 10);
+    const grupos = {};
+    for (const e of lista) {
+      if (e.estado === 'pagado' || !e.fecha_operacion || e.fecha_operacion < desde) continue;
+      (grupos[e.grupo_id || e.id] ||= []).push(e);
+    }
+    const cambios = [];
+    for (const cuotas of Object.values(grupos)) {
+      cuotas.sort((a, b) => (a.numero_cuota || 1) - (b.numero_cuota || 1));
+      const primera = cuotas[0];
+      const meses = mesesHastaPago(card, primera.fecha_operacion);
+      const nuevaPrimera = sumarMeses(deISO(primera.fecha_operacion), meses).toISOString().slice(0, 10);
+      if (mesDe(nuevaPrimera) === mesDe(primera.fecha_compra)) continue;
+      cambios.push({
+        descripcion: primera.descripcion,
+        compra: primera.fecha_operacion,
+        antes: primera.fecha_compra,
+        despues: nuevaPrimera,
+        monto: cuotas.reduce((s, c) => s + (c.monto || 0), 0),
+        filas: cuotas.map((c, i) => ({ id: c.id, fecha_compra: sumarMeses(deISO(primera.fecha_operacion), meses + i).toISOString().slice(0, 10) })),
+      });
+    }
+    return cambios;
+  }
+
+  async function aplicarAcomodos() {
+    const { cardId, cambios } = acomodar;
+    const filas = cambios.flatMap(c => c.filas);
+    await Promise.all(filas.map(f => supabase.from('card_expenses').update({ fecha_compra: f.fecha_compra }).eq('id', f.id)));
+    setAcomodar(null);
+    loadExpenses(cardId);
   }
 
   async function handlePagarTarjeta(expId, cardId) {
@@ -2321,6 +2408,33 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                   </div>
                 </div>
 
+                {verPeriodo && (() => {
+                  // Lo que se paga en el próximo vencimiento: los consumos sin pagar
+                  // que caen en el mes del límite de pago cargado en la tarjeta.
+                  const venc = card.fecha_limite_pago;
+                  if (!venc) return null;
+                  const delPeriodo = exps.filter(e => e.estado !== 'pagado' && mesDePagoGuardado(e) === mesDe(venc));
+                  const total = delPeriodo.reduce((s, e) => s + (e.monto || 0), 0);
+                  const vencida = venc < hoyISO();
+                  if (!delPeriodo.length && !vencida) return null;
+                  return (
+                    <div style={{ marginTop: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 14, padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>A pagar el {fmtFecha(venc)}</span>
+                        <span style={{ fontSize: 17, fontWeight: 800, color: '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(total)}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 6, lineHeight: 1.5 }}>
+                        {delPeriodo.length} consumo{delPeriodo.length !== 1 ? 's' : ''} de este período · aproximado: no incluye intereses ni gastos financieros del banco.
+                      </div>
+                      {vencida && (
+                        <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 6, lineHeight: 1.5 }}>
+                          Esta fecha ya pasó. Tocá ✏️ y cargá el cierre y el límite de pago del período nuevo.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {editCiclo === card.id && (
                   <form className="mas-form" style={{ marginTop: 12, marginBottom: 0 }} onSubmit={e => handleEditCiclo(e, card.id)}>
                     <div className="mas-form-title">Editar ciclo actual</div>
@@ -2371,9 +2485,29 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
                     <div className="row">
                       <div className="field">
                         <label>Fecha de compra</label>
-                        <input type="date" value={expForm.fecha_compra} onChange={e => setExpForm(f => ({ ...f, fecha_compra: e.target.value }))} required />
+                        <input type="date" value={expForm.fecha_compra} onChange={e => setExpForm(f => ({ ...f, fecha_compra: e.target.value, desfase: 0 }))} required />
                       </div>
                     </div>
+                    {verPeriodo && expForm.fecha_compra && (() => {
+                      // El banco corre el cierre todos los meses: el app propone y el usuario corrige.
+                      const pago = fechaDePago(card, expForm.fecha_compra, expForm.desfase || 0);
+                      const otro = fechaDePago(card, expForm.fecha_compra, (expForm.desfase || 0) === 0 ? 1 : -1);
+                      if (!pago) return null;
+                      return (
+                        <div style={{ margin: '-4px 0 12px', fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6 }}>
+                          Se va a pagar el <b style={{ color: '#fff' }}>{fmtFecha(pago)}</b>
+                          <button type="button" onClick={() => setExpForm(f => ({ ...f, desfase: (f.desfase || 0) === 0 ? 1 : 0 }))}
+                            style={{ marginLeft: 8, padding: '4px 10px', borderRadius: 8, border: '1px solid rgba(165,180,252,0.35)', background: 'rgba(99,102,241,0.12)', color: '#a5b4fc', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                            {(expForm.desfase || 0) === 0 ? `Mover al mes siguiente (${fmtFecha(otro)})` : `Volver al ${fmtFecha(otro)}`}
+                          </button>
+                          {card.fecha_cierre && (
+                            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
+                              Tu último cierre cargado es el {fmtFecha(card.fecha_cierre)}. Si comprás después de esa fecha, el banco lo cobra en el período siguiente.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div className="row">
                       <div className="field">
                         <label>Descontar de</label>
@@ -2468,6 +2602,30 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false }) {
             );
           })}
         </ul>
+      )}
+
+      {/* Al cambiar el cierre: qué consumos cambiarían de período. Decide el usuario. */}
+      {acomodar && (
+        <Cartel icono="📅" titulo="¿Acomodo estos consumos?" onCerrar={() => setAcomodar(null)}
+          botones={<>
+            <button type="button" onClick={aplicarAcomodos} style={btnPrimario}>Sí, acomodarlos</button>
+            <button type="button" onClick={() => setAcomodar(null)} style={btnSecundario}>Dejar como están</button>
+          </>}>
+          <p style={textoCartel}>Con el cierre nuevo, {acomodar.cambios.length === 1 ? "este consumo pasaría" : `estos ${acomodar.cambios.length} consumos pasarían`} a otro período:</p>
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8, textAlign: "left" }}>
+            {acomodar.cambios.map((c, i) => (
+              <div key={i} style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{c.descripcion}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#f87171", whiteSpace: "nowrap" }}>{fmt(c.monto)}</span>
+                </div>
+                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.45)", marginTop: 4 }}>
+                  Compra del {fmtFecha(c.compra)} · se pagaba en {MESES[deISO(c.antes).getMonth()]} → pasa a {MESES[deISO(c.despues).getMonth()]}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Cartel>
       )}
     </div>
   );
