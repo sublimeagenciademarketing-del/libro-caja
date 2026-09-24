@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas, puedeTarjetaPeriodo, puedeRadiografia } from '../../lib/config';
 import { MONEDAS, esGuarani, fmtMoneda, leerMonto } from '../../lib/monedas';
 import Convertidor, { BotonConvertir } from '../../components/Convertidor';
-import Cartel, { btnPrimario, btnSecundario, textoCartel } from '../../components/Cartel';
+import Cartel, { btnPrimario, btnSecundario, textoCartel, Destacado } from '../../components/Cartel';
 import { estadoPush, activarPush, desuscribirPush } from '../../lib/push-cliente';
 import { sumarMeses } from '../../lib/fechas';
 import { hoyISO, deISO, mesDe, enMes, sumarDias, siguiente, proximoDe, esRecurrente, estadoDe, textoEstado, ocurrenciasEnMes, cadenciaEnMes, alPagar, alRevertir } from '../../lib/recurrencia';
@@ -262,16 +262,16 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
       // así se puede ver por cuenta sin volver a consultar la base.
       if (puedeRadiografia(userEmail)) {
         const [cuotasP, tarjetas, consumos, deudasP, metasP] = await Promise.all([
-          supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
+          supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
           supabase.from('credit_cards').select('id, nombre, fecha_limite_pago').eq('user_id', userId).order('created_at'),
           supabase.from('card_expenses').select('monto, card_id, cuenta, fecha_compra, estado').eq('user_id', userId).neq('estado', 'pagado'),
-          supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda').eq('user_id', userId).neq('estado', 'pagado'),
+          supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda, fecha_limite').eq('user_id', userId).neq('estado', 'pagado'),
           supabase.from('savings_goals').select('monto_meta, monto_actual, moneda').eq('user_id', userId),
         ]);
         setRadio({
           y, mo, hoy,
           fijos: r4.data || [],
-          cuotas: (cuotasP.data || []).filter(c => c.installment_purchases).map(c => ({ monto: c.monto, cuenta: c.installment_purchases.cuenta, moneda: monedaDe(c.installment_purchases) })),
+          cuotas: (cuotasP.data || []).filter(c => c.installment_purchases).map(c => ({ monto: c.monto, fecha: c.fecha_vencimiento, cuenta: c.installment_purchases.cuenta, moneda: monedaDe(c.installment_purchases) })),
           tarjetas: tarjetas.data || [],
           consumos: consumos.data || [],
           deudas: deudasP.data || [],
@@ -380,8 +380,15 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         const fijos = radio.fijos.filter(g => de(g.cuenta));
         if (fijos.length) filas.push({ id: 'gastos', titulo: 'Gastos fijos', valor: textoPorMoneda(fijos, g => cadenciaEnMes(g, ry, rmo, rhoy).length * (g.monto || 0)), detalle: 'por mes' });
 
+        const finMes = enMes(ry, rmo, 31);
+        // De un total, cuánto cae en el mes en curso (y lo atrasado, que también hay que pagar).
         const cuotas = radio.cuotas.filter(c => de(c.cuenta));
-        if (cuotas.length) filas.push({ id: 'cuotas', titulo: 'Cuotas', valor: textoPorMoneda(cuotas, c => c.monto || 0), detalle: `${cuotas.length} cuota${cuotas.length !== 1 ? 's' : ''} por pagar` });
+        if (cuotas.length) {
+          const delMes = cuotas.filter(c => c.fecha && c.fecha <= finMes);
+          const detalle = [`${cuotas.length} cuota${cuotas.length !== 1 ? 's' : ''} por pagar`];
+          if (delMes.length) detalle.push(`este mes: ${textoPorMoneda(delMes, c => c.monto || 0)}`);
+          filas.push({ id: 'cuotas', titulo: 'Cuotas', valor: textoPorMoneda(cuotas, c => c.monto || 0), detalle: detalle.join(' · ') });
+        }
 
         radio.tarjetas.forEach(t => {
           const suyos = radio.consumos.filter(c => c.card_id === t.id);
@@ -398,12 +405,24 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         });
 
         const deudas = radio.deudas.filter(d => de(d.cuenta));
-        if (deudas.length) filas.push({ id: 'deudas', titulo: 'Deudas', valor: textoPorMoneda(deudas, d => (d.monto_total || 0) - (d.monto_pagado || 0)), detalle: 'te falta pagar' });
+        if (deudas.length) {
+          const delMes = deudas.filter(d => d.fecha_limite && d.fecha_limite <= finMes);
+          filas.push({ id: 'deudas', titulo: 'Deudas', valor: textoPorMoneda(deudas, d => (d.monto_total || 0) - (d.monto_pagado || 0)),
+            detalle: delMes.length ? `este mes: ${textoPorMoneda(delMes, d => (d.monto_total || 0) - (d.monto_pagado || 0))}` : 'te falta pagar' });
+        }
 
         const cobros = radio.cobros.filter(c => de(c.cuenta));
-        const finMesRadio = enMes(ry, rmo, 31);
-        const debenAlgo = cobros.some(c => esRecurrente(c) ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length : (c.estado === 'pendiente' && (!c.fecha_esperada || c.fecha_esperada <= finMesRadio)));
-        if (debenAlgo) filas.push({ id: 'cobros', titulo: 'Te deben', valor: textoPorMoneda(cobros, c => esRecurrente(c) ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length * (c.monto || 0) : ((c.estado === 'pendiente' && (!c.fecha_esperada || c.fecha_esperada <= finMesRadio)) ? (c.monto || 0) : 0)), detalle: 'este mes y atrasados', bueno: true });
+        // Te deben: el total son los de una sola vez sin cobrar más las veces que
+        // caen este mes de los repetitivos (un repetitivo no tiene un total: sigue siempre).
+        const montoCobro = (c, soloMes) => esRecurrente(c)
+          ? ocurrenciasEnMes(c, ry, rmo, rhoy, { incluirAtrasadas: true }).length * (c.monto || 0)
+          : (c.estado === 'pendiente' && (!soloMes || !c.fecha_esperada || c.fecha_esperada <= finMes) ? (c.monto || 0) : 0);
+        const totalCobros = textoPorMoneda(cobros, c => montoCobro(c, false));
+        const mesCobros = textoPorMoneda(cobros, c => montoCobro(c, true));
+        if (cobros.some(c => montoCobro(c, false) > 0)) {
+          filas.push({ id: 'cobros', titulo: 'Te deben', valor: totalCobros,
+            detalle: mesCobros === totalCobros ? 'todo vence este mes' : `este mes: ${mesCobros}`, bueno: true });
+        }
 
         // Las metas de ahorro no se dividen por cuenta: son del usuario.
         if (radio.metas.length) filas.push({ id: 'metas', titulo: 'Metas de ahorro', valor: textoPorMoneda(radio.metas, m => (m.monto_meta || 0) - (m.monto_actual || 0)), detalle: `te falta para ${radio.metas.length} meta${radio.metas.length !== 1 ? 's' : ''}` });
@@ -2224,7 +2243,9 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
   const [cardForm, setCardForm] = useState({ nombre: '', fecha_cierre: '', fecha_limite_pago: '' });
   const [expForm, setExpForm] = useState({ descripcion: '', monto: '', montoDisplay: '', fecha_compra: hoyISO(), cuotas: '1', cuenta: cfg.c1, desfase: 0 });
   const verPeriodo = puedeTarjetaPeriodo(userEmail);
-  const [acomodar, setAcomodar] = useState(null); // { card, cambios: [...] } al editar el ciclo
+  const [acomodar, setAcomodar] = useState(null);   // al editar el ciclo: consumos que cambian de período
+  const [pagarPeriodo, setPagarPeriodo] = useState(null); // confirmación de "pagué este período"
+  const [pagando, setPagando] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2327,6 +2348,9 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
       if (!lista) { const { data } = await supabase.from('card_expenses').select('*').eq('card_id', cardId); lista = data || []; }
       const cambios = calcularAcomodos(lista, { id: cardId, ...nuevaCard });
       if (cambios.length) setAcomodar({ cardId, nombre: nuevaCard.nombre, cambios, elegidos: cambios.map(() => true) });
+      // ¿Quedaron consumos sin pagar de períodos anteriores al nuevo vencimiento?
+      const atrasados = lista.filter(e => e.estado !== 'pagado' && e.fecha_compra && mesDe(e.fecha_compra) < mesDe(nuevaCard.fecha_limite_pago));
+      if (atrasados.length && !cambios.length) setPagarPeriodo({ cardId, lista: atrasados, vencido: true });
     }
   }
 
@@ -2380,6 +2404,24 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
       });
     }
     loadExpenses(cardId);
+  }
+
+  // Marca como pagados varios consumos de una vez (el pago de la tarjeta al banco)
+  // y anota cada uno en el panel principal, igual que si se marcaran uno por uno.
+  async function pagarVarios(cardId, lista) {
+    setPagando(true);
+    for (const exp of lista) {
+      const { error } = await supabase.from('card_expenses').update({ estado: 'pagado' }).eq('id', exp.id);
+      if (error) continue;
+      const suffix = exp.cuotas > 1 ? ` (${exp.numero_cuota}/${exp.cuotas})` : '';
+      await supabase.from('transactions').insert({
+        user_id: userId, monto: exp.monto, tipo: 'gasto', fecha: hoyISO(),
+        categoria: `Tarjeta: ${exp.descripcion}${suffix}`, cuenta: exp.cuenta || cfg.c1,
+      });
+    }
+    setPagando(false);
+    setPagarPeriodo(null);
+    await load();
   }
 
   async function handleDeleteCard(id) {
@@ -2517,26 +2559,51 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
                 {verPeriodo && (() => {
                   // Lo que se paga en el próximo vencimiento: los consumos sin pagar
                   // que caen en el mes del límite de pago cargado en la tarjeta.
+                  // Y aparte, lo que quedó sin pagar de períodos anteriores.
                   const venc = card.fecha_limite_pago;
                   if (!venc) return null;
-                  const delPeriodo = exps.filter(e => e.estado !== 'pagado' && mesDePagoGuardado(e) === mesDe(venc));
+                  const sinPagar = exps.filter(e => e.estado !== 'pagado');
+                  const delPeriodo = sinPagar.filter(e => mesDePagoGuardado(e) === mesDe(venc));
+                  const atrasados = sinPagar.filter(e => e.fecha_compra && mesDePagoGuardado(e) < mesDe(venc));
                   const total = delPeriodo.reduce((s, e) => s + (e.monto || 0), 0);
+                  const totalAtrasado = atrasados.reduce((s, e) => s + (e.monto || 0), 0);
                   const vencida = venc < hoyISO();
-                  if (!delPeriodo.length && !vencida) return null;
+                  if (!delPeriodo.length && !atrasados.length && !vencida) return null;
+                  const botonPagar = (lista, texto) => !soloLectura && lista.length > 0 && (
+                    <button type="button" onClick={() => setPagarPeriodo({ cardId: card.id, lista })}
+                      style={{ width: '100%', marginTop: 10, padding: '9px 12px', borderRadius: 10, border: '1px solid rgba(52,211,153,0.35)', background: 'rgba(52,211,153,0.12)', color: '#34d399', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      {texto}
+                    </button>
+                  );
                   return (
-                    <div style={{ marginTop: 12, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 14, padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>A pagar el {fmtFecha(venc)}</span>
-                        <span style={{ fontSize: 17, fontWeight: 800, color: '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(total)}</span>
-                      </div>
-                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 6, lineHeight: 1.5 }}>
-                        {delPeriodo.length} consumo{delPeriodo.length !== 1 ? 's' : ''} de este período · aproximado: no incluye intereses ni gastos financieros del banco.
-                      </div>
-                      {vencida && (
-                        <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 6, lineHeight: 1.5 }}>
-                          Esta fecha ya pasó. Tocá ✏️ y cargá el cierre y el límite de pago del período nuevo.
+                    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {atrasados.length > 0 && (
+                        <div style={{ background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 14, padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Sin pagar de antes</span>
+                            <span style={{ fontSize: 17, fontWeight: 800, color: '#fbbf24', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(totalAtrasado)}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 6, lineHeight: 1.5 }}>
+                            {atrasados.length} consumo{atrasados.length !== 1 ? 's' : ''} de períodos anteriores que todavía no marcaste como pagados.
+                          </div>
+                          {botonPagar(atrasados, `✓ Ya pagué esto (${atrasados.length} consumo${atrasados.length !== 1 ? 's' : ''})`)}
                         </div>
                       )}
+                      <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 14, padding: '12px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>A pagar el {fmtFecha(venc)}</span>
+                          <span style={{ fontSize: 17, fontWeight: 800, color: '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{fmt(total)}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 6, lineHeight: 1.5 }}>
+                          {delPeriodo.length} consumo{delPeriodo.length !== 1 ? 's' : ''} de este período · aproximado: no incluye intereses ni gastos financieros del banco.
+                        </div>
+                        {vencida && (
+                          <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 6, lineHeight: 1.5 }}>
+                            Esta fecha ya pasó. Tocá ✏️ y cargá el cierre y el límite de pago del período nuevo.
+                          </div>
+                        )}
+                        {botonPagar(delPeriodo, `✓ Ya pagué este período (${delPeriodo.length} consumo${delPeriodo.length !== 1 ? 's' : ''})`)}
+                      </div>
                     </div>
                   );
                 })()}
@@ -2709,6 +2776,30 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
           })}
         </ul>
       )}
+
+      {/* Pagar de una vez todos los consumos de un período. */}
+      {pagarPeriodo && (() => {
+        const total = pagarPeriodo.lista.reduce((s, e) => s + (e.monto || 0), 0);
+        return (
+          <Cartel icono={pagarPeriodo.vencido ? '⚠️' : '💳'} titulo={pagarPeriodo.vencido ? 'Quedó un período sin pagar' : '¿Ya pagaste este período?'}
+            onCerrar={() => !pagando && setPagarPeriodo(null)}
+            botones={<>
+              <button type="button" onClick={() => pagarVarios(pagarPeriodo.cardId, pagarPeriodo.lista)} disabled={pagando} style={{ ...btnPrimario, opacity: pagando ? 0.6 : 1 }}>
+                {pagando ? 'Marcando…' : `Sí, marcar ${pagarPeriodo.lista.length} consumo${pagarPeriodo.lista.length !== 1 ? 's' : ''} como pagados`}
+              </button>
+              <button type="button" onClick={() => setPagarPeriodo(null)} disabled={pagando} style={btnSecundario}>Todavía no</button>
+            </>}>
+            <p style={textoCartel}>
+              {pagarPeriodo.vencido
+                ? <>Cambiaste la fecha, pero quedaron <b style={{ color: '#fff' }}>{pagarPeriodo.lista.length}</b> consumos sin pagar de antes, por <Destacado>{fmt(total)}</Destacado> Si ya le pagaste eso al banco, marcalos ahora para que no se mezclen con el período nuevo.</>
+                : <>Se van a marcar <b style={{ color: '#fff' }}>{pagarPeriodo.lista.length}</b> consumos como pagados, por un total de <Destacado>{fmt(total)}</Destacado> Se van a anotar como gastos en el panel principal, uno por cada consumo.</>}
+            </p>
+            <p style={{ ...textoCartel, fontSize: 12, marginTop: 10, color: 'rgba(255,255,255,0.4)' }}>
+              Los intereses y gastos financieros del banco no se anotan solos: si los hubo, cargalos aparte como un gasto.
+            </p>
+          </Cartel>
+        );
+      })()}
 
       {/* Al cambiar el cierre: qué consumos cambiarían de período. Decide el usuario. */}
       {acomodar && (
