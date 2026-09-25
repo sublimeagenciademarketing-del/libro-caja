@@ -156,6 +156,13 @@ function expandirCobrosDelMes(cobros, y, m0, hoy, mesStart, mesEnd, esMesActual 
 }
 
 /* ─── RESUMEN ANUAL ─── */
+// Dos bloques apagados el 25/09: "Dónde estás hoy" y "Compromisos del mes".
+// Mezclaban plazos distintos (por mes, del período, este mes, en total) y el
+// porcentaje sobre los ingresos se leía mal. El código queda por si se quiere
+// recuperar la idea más simple: alcanza con poner true.
+const VER_RADIOGRAFIA = false;
+const VER_COMPROMISOS = false;
+
 function Resumen({ userId, userEmail, cfg, onIr }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -243,24 +250,26 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
       // Compromisos del mes: todo lo que vence este mes sí o sí (gastos fijos,
       // cuotas, tarjetas y deudas con fecha), pagado o no, para compararlo con
       // los ingresos. Se cuentan todas las ocurrencias del mes, no solo las pendientes.
-      const [{ data: cuotasMes }, { data: tarjetasMes }] = await Promise.all([
-        supabase.from('installments').select('monto, installment_purchases!inner(user_id, moneda, cuenta)').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
-        supabase.from('card_expenses').select('monto, cuenta').eq('user_id', userId).gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
-      ]);
-      // Se calcula para el total y para cada cuenta (en cuenta doble se muestra por cuenta).
-      const compromisosDe = (c) => {
-        const de = (valor) => !c || cfg.single || mismaCuenta(valor, c);
-        const fijos = (r4.data || []).filter(g => de(g.cuenta)).flatMap(g => cadenciaEnMes(g, y, mo, hoy).map(() => g.monto || 0)).reduce((s, n) => s + n, 0);
-        const cuotas = (cuotasMes || []).filter(x => monedaDe(x.installment_purchases) === 'PYG' && de(x.installment_purchases?.cuenta)).reduce((s, x) => s + (x.monto || 0), 0);
-        const tarjetas = (tarjetasMes || []).filter(x => de(x.cuenta)).reduce((s, x) => s + (x.monto || 0), 0);
-        const deudas = (r2.data || []).filter(d => de(d.cuenta)).reduce((s, d) => s + ((d.monto_total || 0) - (d.monto_pagado || 0)), 0);
-        return { fijos, cuotas, tarjetas, deudas, total: fijos + cuotas + tarjetas + deudas };
-      };
-      setCompromisos({ ...compromisosDe(null), c1: compromisosDe(cfg.c1), c2: cfg.single ? null : compromisosDe(cfg.c2) });
+      if (VER_COMPROMISOS) {
+        const [{ data: cuotasMes }, { data: tarjetasMes }] = await Promise.all([
+          supabase.from('installments').select('monto, installment_purchases!inner(user_id, moneda, cuenta)').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
+          supabase.from('card_expenses').select('monto, cuenta').eq('user_id', userId).gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
+        ]);
+        // Se calcula para el total y para cada cuenta (en cuenta doble se muestra por cuenta).
+        const compromisosDe = (c) => {
+          const de = (valor) => !c || cfg.single || mismaCuenta(valor, c);
+          const fijos = (r4.data || []).filter(g => de(g.cuenta)).flatMap(g => cadenciaEnMes(g, y, mo, hoy).map(() => g.monto || 0)).reduce((s, n) => s + n, 0);
+          const cuotas = (cuotasMes || []).filter(x => monedaDe(x.installment_purchases) === 'PYG' && de(x.installment_purchases?.cuenta)).reduce((s, x) => s + (x.monto || 0), 0);
+          const tarjetas = (tarjetasMes || []).filter(x => de(x.cuenta)).reduce((s, x) => s + (x.monto || 0), 0);
+          const deudas = (r2.data || []).filter(d => de(d.cuenta)).reduce((s, d) => s + ((d.monto_total || 0) - (d.monto_pagado || 0)), 0);
+          return { fijos, cuotas, tarjetas, deudas, total: fijos + cuotas + tarjetas + deudas };
+        };
+        setCompromisos({ ...compromisosDe(null), c1: compromisosDe(cfg.c1), c2: cfg.single ? null : compromisosDe(cfg.c2) });
+      }
 
       // "Dónde estás hoy": se guardan las listas y el detalle se arma al mostrar,
       // así se puede ver por cuenta sin volver a consultar la base.
-      if (puedeRadiografia(userEmail)) {
+      if (VER_RADIOGRAFIA && puedeRadiografia(userEmail)) {
         const [cuotasP, tarjetas, consumos, deudasP, metasP] = await Promise.all([
           supabase.from('installments').select('monto, estado, fecha_vencimiento, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').eq('installment_purchases.user_id', userId),
           supabase.from('credit_cards').select('id, nombre, fecha_limite_pago').eq('user_id', userId).order('created_at'),
@@ -369,7 +378,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
 
       {/* Dónde estás hoy: una línea por sección, solo con lo que tiene algo cargado.
           En cuenta doble se muestra de a una cuenta, para no mezclar. */}
-      {puedeRadiografia(userEmail) && !loading && radio && (() => {
+      {VER_RADIOGRAFIA && puedeRadiografia(userEmail) && !loading && radio && (() => {
         const de = (valor) => cfg.single || mismaCuenta(valor, cuentaRadio);
         const { y: ry, mo: rmo, hoy: rhoy } = radio;
         const icono = (id) => {
@@ -490,7 +499,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
               En caja en {MESES[mesActual - 1].toLowerCase()}: {CUENTAS.map(({ l, k }) => `${l} ${signo(mesAnterior['bal' + k])}${fmt(mesAnterior['bal' + k])}`).join(' · ')}.
             </div>
           )}
-          {compromisos && CUENTAS.some(({ k }) => compromisos['c' + k]?.total > 0) && (
+          {VER_COMPROMISOS && compromisos && CUENTAS.some(({ k }) => compromisos['c' + k]?.total > 0) && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               {tituloCompromisos}
               {CUENTAS.map(({ l, k, color }) => {
@@ -540,7 +549,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Comparado con {MESES[mesActual - 1].toLowerCase()}: {signo(mesAnterior.bal)}{fmt(mesAnterior.bal)} en caja.</div>
             )}
           </div>
-          {compromisos && compromisos.total > 0 && (
+          {VER_COMPROMISOS && compromisos && compromisos.total > 0 && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>{tituloCompromisos}</div>
