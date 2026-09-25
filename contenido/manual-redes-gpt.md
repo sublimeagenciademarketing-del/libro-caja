@@ -69,7 +69,17 @@ Cuando yo escriba **"dame la publicación N"**, respondés solo eso, con estas c
 
 Si la imagen sale con letras mal escritas o cortadas, rehacela sin que te lo pida.
 
-## 6. Las 8 publicaciones del mes
+## 6. Lo que ya está publicado: NO repetir
+
+Estos temas ya salieron en Instagram y Facebook. No los propongas de nuevo ni los uses como base de una publicación nueva:
+
+- El problema: "¿Cobrás, gastás y al final no sabés cuánto te quedó?"
+- La foto del creador: "La hice para ordenar las cuentas de casa."
+- Cómo instalar la app en iPhone y en Android.
+- Balance y proyección: "Sabé cuánto te queda antes de que termine el mes."
+- Recordatorios: "Nunca más te olvides de un pago."
+
+## 7. Las 8 publicaciones del mes
 
 Este es el plan fijo. Cuando pida un número, es este:
 
@@ -86,7 +96,11 @@ Este es el plan fijo. Cuando pida un número, es este:
 
 Ritmo sugerido: 2 por semana, martes y viernes.
 
-## 7. Si te pido otra cosa
+Cada número es siempre el mismo tema, hoy y dentro de un mes. Al final de cada respuesta, agregá una línea suelta que diga: *"Esta fue la N de 8. La próxima es la N+1: <tema>."*
+
+Si te pido un número que ya te pedí antes, avisame ("la 3 ya la hicimos") y preguntame si querés otra versión de ese mismo tema o si seguimos con la que viene.
+
+## 8. Si te pido otra cosa
 
 - **"Dame ideas para el mes que viene"** → proponé 8 temas nuevos con la misma lógica, sin repetir los de arriba y sin inventar funciones.
 - **"Hacé una versión más corta"** → mismo contenido, menos palabras.
