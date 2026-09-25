@@ -317,6 +317,9 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
   const variacion = (ahora, antes) => (antes > 0 ? Math.round(((ahora - antes) / antes) * 100) : null);
   const mesesCerrados = data.filter(m => m.tiene && m.mes < mesActual);
   const promedioBase = mesesCerrados.length ? mesesCerrados : mesesConDatos;
+  // Con un solo mes cargado el "promedio" repite los mismos números que "Este mes"
+  // y confunde. Recién aparece cuando hay dos meses o más para promediar.
+  const hayPromedio = promedioBase.length >= 2;
   const promIng = promedioBase.length ? promedioBase.reduce((s, m) => s + m.ing, 0) / promedioBase.length : 0;
   const promGas = promedioBase.length ? promedioBase.reduce((s, m) => s + m.gas, 0) / promedioBase.length : 0;
   // Compromisos contra ingresos: los del mes si ya hay, si no el promedio mensual.
@@ -573,7 +576,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         </div>
       )}
 
-      {ampliado && !loading && promedioBase.length > 0 && porCuentas && (
+      {ampliado && !loading && hayPromedio && porCuentas && (
         <div style={tarjeta}>
           <div style={titulo}>Promedio mensual · {promedioBase.length} {promedioBase.length === 1 ? 'mes' : 'meses'}{mesesCerrados.length ? ' cerrados' : ''}</div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -602,7 +605,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         </div>
       )}
 
-      {ampliado && !loading && promedioBase.length > 0 && !porCuentas && (
+      {ampliado && !loading && hayPromedio && !porCuentas && (
         <div style={tarjeta}>
           <div style={titulo}>Promedio mensual · {promedioBase.length} {promedioBase.length === 1 ? 'mes' : 'meses'}{mesesCerrados.length ? ' cerrados' : ''}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -616,16 +619,23 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         </div>
       )}
 
+      {/* La proyección no es plata que ya tenés: es cómo terminaría el mes si se
+          cumple todo lo cargado. Va con su explicación para que no se confunda
+          con "Este mes". */}
       {proj1 !== null && (
-        <div className="donut-cuentas-bal" style={{ marginBottom: 12, padding: '10px 0' }}>
-          <span className={proj1 >= 0 ? 'pos' : 'neg'}>
-            {cfg.l1} proyección {MESES[mesActual]}: {proj1 >= 0 ? '+' : '−'}{fmt(Math.abs(proj1))}
-          </span>
-          {proj2 !== null && (
-            <span className={proj2 >= 0 ? 'pos' : 'neg'}>
-              {cfg.l2} proyección {MESES[mesActual]}: {proj2 >= 0 ? '+' : '−'}{fmt(Math.abs(proj2))}
-            </span>
-          )}
+        <div style={tarjeta}>
+          <div style={titulo}>Cómo terminaría {MESES[mesActual].toLowerCase()}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[{ l: cfg.l1, v: proj1 }, ...(proj2 !== null ? [{ l: cfg.l2, v: proj2 }] : [])].map(x => (
+              <div key={x.l} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{cfg.single ? 'En caja' : x.l}</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: x.v >= 0 ? '#34d399' : '#f87171', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{x.v >= 0 ? '+' : '−'}{fmt(Math.abs(x.v))}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 8, lineHeight: 1.5 }}>
+            No es lo que tenés hoy: es lo que quedaría si cobrás y pagás todo lo que cargaste para este mes.
+          </div>
         </div>
       )}
 
@@ -2812,6 +2822,9 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
             </p>
             <p style={{ ...textoCartel, fontSize: 12, marginTop: 10, color: 'rgba(255,255,255,0.4)' }}>
               Los intereses y gastos financieros del banco no se anotan solos: si los hubo, cargalos aparte como un gasto.
+            </p>
+            <p style={{ ...textoCartel, fontSize: 12, marginTop: 8, color: 'rgba(255,255,255,0.4)' }}>
+              Si te equivocás, se puede deshacer: abrí la compra con ▼ y tocá ↩ Revertir. Vuelve a quedar sin pagar y se borra el gasto del panel principal.
             </p>
           </Cartel>
         );
