@@ -431,6 +431,16 @@ ul.ledger li:hover {
 .tx-icon.personal { background: rgba(192,132,252,0.15); border: 1px solid rgba(192,132,252,0.2); color: #c084fc; }
 ul.ledger li .meta { flex: 1; min-width: 0; }
 ul.ledger li .cat { font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Los textos que no entran terminan en "…". Tocándolos se despliegan enteros
+   (lo maneja components/VerTextoCompleto.jsx) y se vuelven a plegar al tocar otra vez. */
+.cat.desplegado, .sub.desplegado, .mas-section-sub.desplegado,
+ul.ledger li .cat.desplegado,
+.mas-list li .cat.desplegado, .mas-list li .sub.desplegado {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+}
 ul.ledger li .sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; font-weight: 500; }
 ul.ledger li .amt { font-size: 15px; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 ul.ledger li .amt.pos { color: #34d399; }
@@ -781,7 +791,7 @@ ul.ledger li .del:hover { background: rgba(248,113,113,0.2); color: #f87171; bor
   margin-top: 4px;
 }
 .resumen-mes-nombre { font-size: 14px; font-weight: 600; color: #fff; flex: 1; }
-.resumen-cuentas { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.resumen-cuentas { display: flex; flex-direction: column; gap: 2px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .resumen-cuentas .pos { color: #34d399; }
 .resumen-cuentas .neg { color: #f87171; }
 .resumen-stats { display: flex; flex-direction: column; gap: 2px; min-width: 90px; text-align: right; font-variant-numeric: tabular-nums; }

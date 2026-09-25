@@ -202,7 +202,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         const gas1 = del_mes.filter(t => t.tipo === 'gasto' && (cfg.single || mismaCuenta(t.cuenta, cfg.c1))).reduce((s,t) => s + t.monto, 0);
         const ing2 = del_mes.filter(t => t.tipo === 'ingreso' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s,t) => s + t.monto, 0);
         const gas2 = del_mes.filter(t => t.tipo === 'gasto' && mismaCuenta(t.cuenta, cfg.c2)).reduce((s,t) => s + t.monto, 0);
-        return { mes: i, ing, gas, bal: ing - gas, ing1, gas1, ing2, gas2, bal1: ing1 - gas1, bal2: ing2 - gas2, tiene: del_mes.length > 0 };
+        return { mes: i, ing, gas, bal: ing - gas, ing1, gas1, ing2, gas2, bal1: ing1 - gas1, bal2: ing2 - gas2, tiene: del_mes.length > 0, n: del_mes.length };
       });
       setData(meses);
 
@@ -369,6 +369,11 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
     </div>
   );
   const tarjeta = { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: '14px 16px', marginBottom: 10 };
+  const subtitulo = { fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: -6, marginBottom: 10, lineHeight: 1.5 };
+  // Qué es "Este mes": lo que ya quedó anotado, no una cuenta de lo que falta.
+  const movimientosDelMes = esteMes && esteMes.n
+    ? `Lo que ya anotaste en ${MESES[mesActual].toLowerCase()}: ${esteMes.n} ${esteMes.n === 1 ? 'movimiento' : 'movimientos'}.`
+    : 'Todavía no anotaste movimientos este mes.';
   const titulo = { fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 };
 
   return (
@@ -477,6 +482,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
       {ampliado && !loading && esteMes && esteMes.tiene && porCuentas && (
         <div style={tarjeta}>
           <div style={titulo}>Este mes · {MESES[mesActual]}</div>
+          <div style={subtitulo}>{movimientosDelMes}</div>
           <div style={{ display: 'flex', gap: 8 }}>
             {CUENTAS.map(({ l, k, color }) => (
               <div key={k} style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -534,6 +540,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
       {ampliado && !loading && esteMes && esteMes.tiene && !porCuentas && (
         <div style={tarjeta}>
           <div style={titulo}>Este mes · {MESES[mesActual]}</div>
+          <div style={subtitulo}>{movimientosDelMes}</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>Ingresos</span>
@@ -643,7 +650,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         <div className="empty">No hay movimientos registrados en {anio}.</div>
       ) : (
         <ul className="resumen-list">
-          {ampliado && <li className="mas-grupo" style={{ padding: '0 4px' }}>Por mes · tocá uno para ver el detalle</li>}
+          {ampliado && <li className="mas-grupo" style={{ padding: '0 4px' }}>Cómo cerró cada mes · tocá uno para ver el detalle</li>}
           {data.filter(m => m.tiene).map(m => {
             const abierto = ampliado && mesAbierto === m.mes;
             const previo = m.mes > 0 && data[m.mes - 1]?.tiene ? data[m.mes - 1] : null;
@@ -685,7 +692,10 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
             );
           })}
           <li className="resumen-total">
-            <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="resumen-mes-nombre" style={{ fontWeight: 800 }}>Total {anio}</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', fontWeight: 500, marginTop: 2 }}>Todo lo que entró menos todo lo que salió en el año</div>
+            </div>
             {!cfg.single && (
               <div className="resumen-cuentas">
                 <span className={totalAnio1 >= 0 ? 'pos' : 'neg'}>{cfg.l1}: {totalAnio1 >= 0 ? '+' : '−'}{fmt(Math.abs(totalAnio1))}</span>

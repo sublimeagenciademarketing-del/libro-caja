@@ -1,5 +1,6 @@
 import './globals.css';
 import { DIAS_PRUEBA } from '../lib/config';
+import VerTextoCompleto from '../components/VerTextoCompleto';
 
 const SITE_URL = 'https://libro-caja-app-phi.vercel.app';
 const TITULO = 'MiCaja — Controlá tu dinero';
@@ -46,7 +47,7 @@ export default function RootLayout({ children }) {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
       </head>
-      <body>{children}</body>
+      <body>{children}<VerTextoCompleto /></body>
     </html>
   );
 }
