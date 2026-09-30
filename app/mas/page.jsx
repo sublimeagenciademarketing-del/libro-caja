@@ -2116,12 +2116,15 @@ function Metas({ userId, userEmail, cfg, soloLectura = false }) {
                     {(() => {
                       const r = 18, c = 22, circ = 2 * Math.PI * r;
                       const dash = (pct / 100) * circ;
+                      // Con la meta cumplida el anillo se dibuja entero y de un solo
+                      // verde: el corte del trazo y la punta oscura del degradé hacían
+                      // parecer que al 100 % todavía le faltaba un pedazo.
+                      const completo = pct >= 100;
                       return (
                         <svg width="44" height="44" viewBox="0 0 44 44">
                           <circle cx={c} cy={c} r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
-                          <circle cx={c} cy={c} r={r} fill="none" stroke="url(#gMeta)" strokeWidth="4"
-                            strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ / 4}
-                            strokeLinecap="round" />
+                          <circle cx={c} cy={c} r={r} fill="none" stroke={completo ? '#34d399' : 'url(#gMeta)'} strokeWidth="4"
+                            {...(completo ? {} : { strokeDasharray: `${dash} ${circ}`, strokeDashoffset: circ / 4, strokeLinecap: 'round' })} />
                           <defs>
                             <linearGradient id="gMeta" x1="0" y1="0" x2="1" y2="0">
                               <stop offset="0%" stopColor="#34d399" />
