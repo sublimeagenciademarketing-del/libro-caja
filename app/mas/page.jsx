@@ -228,11 +228,14 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
       const mStr = String(mo + 1).padStart(2, '0');
       const lastDay = new Date(y, mo + 1, 0).getDate();
       const mesStart = `${y}-${mStr}-01`, mesEnd = `${y}-${mStr}-${String(lastDay).padStart(2, '0')}`;
-      const [r1, r2, r3, r4] = await Promise.all([
+      const [r1, r2, r3, r4, r5] = await Promise.all([
         supabase.from('receivables').select('monto, cuenta, estado, frecuencia, fecha_esperada, proximo_vencimiento, cobrado_fecha, activo, moneda').eq('user_id', userId),
         supabase.from('debts').select('monto_total, monto_pagado, cuenta, estado, moneda').eq('user_id', userId).gte('fecha_limite', mesStart).lte('fecha_limite', mesEnd),
         supabase.from('installments').select('monto, estado, installment_purchases!inner(user_id, cuenta, moneda)').eq('estado', 'pendiente').gte('fecha_vencimiento', mesStart).lte('fecha_vencimiento', mesEnd).eq('installment_purchases.user_id', userId),
         supabase.from('recurring_expenses').select('monto, cuenta, activo, pagado_mes, pagado_fecha, frecuencia, dia_vencimiento, proximo_vencimiento, moneda').eq('user_id', userId).eq('activo', true),
+        // Lo que hay que pagarle a la tarjeta este mes. Va igual que en el inicio:
+        // si falta acá, la proyección del Resumen da un número mejor que el real.
+        supabase.from('card_expenses').select('monto, cuenta, estado').eq('user_id', userId).neq('estado', 'pagado').gte('fecha_compra', mesStart).lte('fecha_compra', mesEnd),
       ]);
       const hoy = hoyISO();
       // El resumen es en guaraníes: lo cargado en otra moneda queda afuera.
@@ -245,6 +248,7 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
         deudas: (r2.data || []).filter(r => r.estado !== 'pagado'),
         cuotas: (r3.data || []).filter(r => r.installment_purchases),
         gastos: expandirGastosDelMes(r4.data || [], y, mo, hoy),
+        tarjetas: r5.data || [],
       });
 
       // Compromisos del mes: todo lo que vence este mes sí o sí (gastos fijos,
@@ -305,7 +309,8 @@ function Resumen({ userId, userEmail, cfg, onIr }) {
     const inc = projection.cobros.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + (r.monto || 0), 0);
     const exp = projection.deudas.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + ((r.monto_total || 0) - (r.monto_pagado || 0)), 0)
       + projection.cuotas.filter(r => deCuenta(r.installment_purchases?.cuenta)).reduce((s, r) => s + (r.monto || 0), 0)
-      + projection.gastos.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + (r.monto || 0), 0);
+      + projection.gastos.filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + (r.monto || 0), 0)
+      + (projection.tarjetas || []).filter(r => deCuenta(r.cuenta)).reduce((s, r) => s + (r.monto || 0), 0);
     return balActual + inc - exp;
   }
   const proj1 = data[mesActual] ? calcProjC(cfg.c1, data[mesActual].bal1) : null;
