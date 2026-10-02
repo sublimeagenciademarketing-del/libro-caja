@@ -598,6 +598,11 @@ export default function Home() {
 
   const [monto, setMonto] = useState('');
   const [montoDisplay, setMontoDisplay] = useState('');
+  // Edición de un movimiento anotado a mano en esta pantalla. Los que generan
+  // los paneles (gastos fijos, cuotas, tarjetas, cobros, deudas) no se tocan
+  // acá: son el espejo de otra cosa y hay que corregirlos en su panel.
+  const [editando, setEditando] = useState(null); // { id, monto, display, fecha, tipo, cuenta, categoria }
+  const [guardandoEd, setGuardandoEd] = useState(false);
   const [moneda, setMoneda] = useState('PYG');
   const [monedaVista, setMonedaVista] = useState('PYG');   // balance deslizable
   const [filtroMoneda, setFiltroMoneda] = useState('todas'); // lista de movimientos
@@ -870,6 +875,25 @@ export default function Home() {
       moneda: (cfg.monedas || []).includes(moneda) ? moneda : 'PYG',
     });
     if (!error) { setMonto(''); setMontoDisplay(''); setCategoria(''); loadTransactions(session.user.id); }
+  }
+
+  function abrirEdicion(t) {
+    const { display } = leerMonto(String(t.monto), t.moneda || 'PYG');
+    setEditando({ id: t.id, monto: String(t.monto), display, fecha: t.fecha, tipo: t.tipo, cuenta: t.cuenta, categoria: t.categoria, moneda: t.moneda || 'PYG' });
+  }
+
+  async function guardarEdicion() {
+    const e = editando;
+    const montoNum = parseFloat(e.monto);
+    if (!montoNum || montoNum <= 0 || !e.fecha || !e.categoria.trim()) return;
+    setGuardandoEd(true);
+    const { error } = await supabase.from('transactions')
+      .update({ monto: montoNum, fecha: e.fecha, tipo: e.tipo, cuenta: e.cuenta, categoria: e.categoria.trim() })
+      .eq('id', e.id);
+    setGuardandoEd(false);
+    if (error) { alert(`No se pudo guardar el cambio: ${error.message}`); return; }
+    setEditando(null);
+    loadTransactions(session.user.id);
   }
 
   async function handleDelete(id) {
@@ -1269,6 +1293,51 @@ export default function Home() {
       ) : (
         <ul className="ledger">
           {filtered.map((t) => (
+            editando?.id === t.id ? (
+              <li key={t.id} className="tx-editando">
+                <div className="entry-title" style={{ marginBottom: 2 }}>Corregir movimiento</div>
+                <div className="row">
+                  <div className="field" style={{ flex: 1.4 }}>
+                    <label>Monto ({editando.moneda === 'PYG' ? '₲' : MONEDAS[editando.moneda].simbolo})</label>
+                    <input type="text" inputMode={editando.moneda === 'PYG' ? 'numeric' : 'decimal'} className="num"
+                      value={editando.display}
+                      onChange={(ev) => { const { valor, display } = leerMonto(ev.target.value, editando.moneda); setEditando(p => ({ ...p, monto: valor, display })); }} />
+                  </div>
+                  <div className="field">
+                    <label>Fecha</label>
+                    <input type="date" value={editando.fecha} onChange={(ev) => setEditando(p => ({ ...p, fecha: ev.target.value }))} />
+                  </div>
+                </div>
+                <div className="row">
+                  <div className="field">
+                    <label>Tipo</label>
+                    <div className="toggle">
+                      <button type="button" className={editando.tipo === 'ingreso' ? 'active ingreso' : ''} onClick={() => setEditando(p => ({ ...p, tipo: 'ingreso' }))}>Ingreso</button>
+                      <button type="button" className={editando.tipo === 'gasto' ? 'active gasto' : ''} onClick={() => setEditando(p => ({ ...p, tipo: 'gasto' }))}>Gasto</button>
+                    </div>
+                  </div>
+                  {!cfg.single && (
+                    <div className="field">
+                      <label>Cuenta</label>
+                      <div className="toggle">
+                        <button type="button" className={editando.cuenta === cfg.c1 ? 'active sublime' : ''} onClick={() => setEditando(p => ({ ...p, cuenta: cfg.c1 }))}>{cfg.l1}</button>
+                        <button type="button" className={editando.cuenta === cfg.c2 ? 'active personal' : ''} onClick={() => setEditando(p => ({ ...p, cuenta: cfg.c2 }))}>{cfg.l2}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="row">
+                  <div className="field">
+                    <label>Categoría / descripción</label>
+                    <input type="text" value={editando.categoria} onChange={(ev) => setEditando(p => ({ ...p, categoria: ev.target.value }))} />
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 8 }}>
+                  <button type="button" onClick={guardarEdicion} disabled={guardandoEd} className="tx-ed-ok">{guardandoEd ? 'Guardando…' : 'Guardar cambios'}</button>
+                  <button type="button" onClick={() => setEditando(null)} className="tx-ed-no">Cancelar</button>
+                </div>
+              </li>
+            ) : (
             <li key={t.id}>
               <div className={`tx-icon ${t.cuenta === cfg.c1 ? 'sublime' : 'personal'}`}>{txIcon(t)}</div>
               <div className="meta">
@@ -1278,8 +1347,12 @@ export default function Home() {
               <div className={`amt${t.tipo === 'ingreso' ? ' pos' : ' neg'}${esGuarani(t) ? '' : ' extra'}`}>
                 {t.tipo === 'ingreso' ? '+' : '−'} {fmtMoneda(t.monto, t.moneda)}
               </div>
+              {!isAutoTx(t) && licStatus !== 'solo_lectura' && (
+                <button className="del tx-edit" onClick={() => abrirEdicion(t)} title="Corregir este movimiento">✎</button>
+              )}
               <button className="del" onClick={() => handleDelete(t.id)} title={isAutoTx(t) ? 'Generado desde Más · borrar de todos modos' : 'Eliminar'} style={isAutoTx(t) ? { opacity: 0.55 } : undefined}>✕</button>
             </li>
+            )
           ))}
         </ul>
       )}

@@ -2290,6 +2290,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
   const [acomodar, setAcomodar] = useState(null);   // al editar el ciclo: consumos que cambian de período
   const [pagarPeriodo, setPagarPeriodo] = useState(null); // confirmación de "pagué este período"
   const [deshacer, setDeshacer] = useState(null);   // último acomodo aplicado, para volver atrás
+  const [editConsumo, setEditConsumo] = useState(null); // corregir una compra de la tarjeta
   const [pagando, setPagando] = useState(false);
 
   const load = useCallback(async () => {
@@ -2504,6 +2505,26 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
     setPagando(false);
     setPagarPeriodo(null);
     await load();
+  }
+
+  // Corrige una compra de la tarjeta. La descripción y la cuenta valen para
+  // todas las cuotas (una compra es de una sola cuenta); el monto solo se
+  // puede cambiar en las compras de un pago. No se tocan las ya pagadas:
+  // para esas hay que usar primero ↩ Revertir, si no el gasto que quedó
+  // anotado en el panel principal diría otra cosa.
+  async function guardarEditConsumo() {
+    const e = editConsumo;
+    if (!e.descripcion.trim()) return;
+    const cambios = { descripcion: e.descripcion.trim(), cuenta: e.cuenta };
+    if (e.unaSolaCuota) {
+      const monto = leerMonto(e.montoDisplay, 'PYG').valor;
+      if (!monto || Number(monto) <= 0) return;
+      cambios.monto = Number(monto);
+    }
+    const { error } = await supabase.from('card_expenses').update(cambios).in('id', e.ids);
+    if (error) { alert(`No se pudo guardar: ${error.message}`); return; }
+    setEditConsumo(null);
+    loadExpenses(e.cardId);
   }
 
   async function handleDeleteCard(id) {
@@ -2842,6 +2863,19 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
                             </div>
                             <span onClick={() => setExpandedGrupo(p => ({ ...p, [key]: !p[key] }))} style={{ fontSize: 13, fontWeight: 700, color: allPaid ? '#34d399' : '#f87171', whiteSpace: 'nowrap', cursor: 'pointer' }}>{fmt(total)}</span>
                             <span onClick={() => setExpandedGrupo(p => ({ ...p, [key]: !p[key] }))} style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', cursor: 'pointer' }}>{isOpen ? '▲' : '▼'}</span>
+                            {!soloLectura && !allPaid && (
+                              <button className="del" title="Corregir esta compra"
+                                style={{ width: 28, height: 28, minWidth: 28, minHeight: 28, borderRadius: 8, fontSize: 11, color: 'rgba(165,180,252,0.9)', borderColor: 'rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.12)' }}
+                                onClick={() => setEditConsumo({
+                                  cardId: card.id,
+                                  ids: cuotas.filter(c => c.estado !== 'pagado').map(c => c.id),
+                                  descripcion: cuotas[0].descripcion,
+                                  cuenta: cuotas[0].cuenta || cfg.c1,
+                                  montoDisplay: String(cuotas[0].monto),
+                                  unaSolaCuota: cuotas.length === 1,
+                                  pagadas: cuotas.filter(c => c.estado === 'pagado').length,
+                                })}>✎</button>
+                            )}
                             <button className="del" style={{ width: 28, height: 28, minWidth: 28, minHeight: 28, borderRadius: 8, fontSize: 11 }} onClick={() => handleDeleteGrupo(cuotas[0].grupo_id, cuotas.map(c => c.id), card.id)}>✕</button>
                           </div>
                           {isOpen && (
@@ -2877,6 +2911,47 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
             );
           })}
         </ul>
+      )}
+
+      {editConsumo && (
+        <Cartel icono="✎" titulo="Corregir la compra" onCerrar={() => setEditConsumo(null)}
+          botones={<>
+            <button type="button" onClick={guardarEditConsumo} style={btnPrimario}>Guardar</button>
+            <button type="button" onClick={() => setEditConsumo(null)} style={btnSecundario}>Cancelar</button>
+          </>}>
+          <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Descripción</label>
+              <input type="text" value={editConsumo.descripcion} onChange={(e) => setEditConsumo(p => ({ ...p, descripcion: e.target.value }))}
+                style={{ width: '100%', marginTop: 6, padding: '11px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontFamily: 'inherit' }} />
+            </div>
+            {editConsumo.unaSolaCuota && (
+              <div>
+                <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Monto (₲)</label>
+                <input type="text" inputMode="numeric" value={leerMonto(editConsumo.montoDisplay, 'PYG').display}
+                  onChange={(e) => setEditConsumo(p => ({ ...p, montoDisplay: e.target.value }))}
+                  style={{ width: '100%', marginTop: 6, padding: '11px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 14, fontFamily: 'inherit' }} />
+              </div>
+            )}
+            {!cfg.single && (
+              <div>
+                <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>¿De qué cuenta es?</label>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  {[{ c: cfg.c1, l: cfg.l1 }, { c: cfg.c2, l: cfg.l2 }].map(({ c, l }) => (
+                    <button type="button" key={c} onClick={() => setEditConsumo(p => ({ ...p, cuenta: c }))}
+                      style={{ flex: 1, padding: '10px 8px', borderRadius: 10, border: `1px solid ${mismaCuenta(editConsumo.cuenta, c) ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.15)'}`, background: mismaCuenta(editConsumo.cuenta, c) ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.05)', color: mismaCuenta(editConsumo.cuenta, c) ? '#fff' : 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>{l}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6, margin: 0 }}>
+              {editConsumo.unaSolaCuota
+                ? 'La fecha no se corrige acá: si está en el período equivocado, borrá la compra y cargala de nuevo.'
+                : 'El cambio vale para todas las cuotas que faltan. El monto y la fecha de una compra en cuotas no se corrigen acá: si están mal, borrá la compra y cargala de nuevo.'}
+              {editConsumo.pagadas > 0 && ` Las ${editConsumo.pagadas} cuota${editConsumo.pagadas !== 1 ? 's' : ''} ya pagada${editConsumo.pagadas !== 1 ? 's' : ''} no se toca${editConsumo.pagadas !== 1 ? 'n' : ''}.`}
+            </p>
+          </div>
+        </Cartel>
       )}
 
       {/* Pagar de una vez todos los consumos de un período. */}
