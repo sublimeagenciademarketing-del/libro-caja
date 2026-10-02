@@ -2289,6 +2289,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
   const verPeriodo = puedeTarjetaPeriodo(userEmail);
   const [acomodar, setAcomodar] = useState(null);   // al editar el ciclo: consumos que cambian de período
   const [pagarPeriodo, setPagarPeriodo] = useState(null); // confirmación de "pagué este período"
+  const [deshacer, setDeshacer] = useState(null);   // último acomodo aplicado, para volver atrás
   const [pagando, setPagando] = useState(false);
 
   const load = useCallback(async () => {
@@ -2412,7 +2413,12 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
       cuotas.sort((a, b) => (a.numero_cuota || 1) - (b.numero_cuota || 1));
       const primera = cuotas[0];
       const meses = mesesHastaPago(card, primera.fecha_operacion);
-      const nuevaPrimera = sumarMeses(deISO(primera.fecha_operacion), meses).toISOString().slice(0, 10);
+      // Cada cuota cae un mes después de la anterior, contando SIEMPRE desde la
+      // cuota 1. Hay que usar el número real de cada una: las ya pagadas no
+      // entran en esta lista, y contar por posición corría toda la serie un mes
+      // hacia atrás por cada cuota pagada.
+      const fechaDe = (c) => sumarMeses(deISO(primera.fecha_operacion), meses + ((c.numero_cuota || 1) - 1)).toISOString().slice(0, 10);
+      const nuevaPrimera = fechaDe(primera);
       if (mesDe(nuevaPrimera) === mesDe(primera.fecha_compra)) continue;
       cambios.push({
         descripcion: primera.descripcion,
@@ -2420,7 +2426,7 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
         antes: primera.fecha_compra,
         despues: nuevaPrimera,
         monto: cuotas.reduce((s, c) => s + (c.monto || 0), 0),
-        filas: cuotas.map((c, i) => ({ id: c.id, fecha_compra: sumarMeses(deISO(primera.fecha_operacion), meses + i).toISOString().slice(0, 10) })),
+        filas: cuotas.map(c => ({ id: c.id, fecha_compra: fechaDe(c) })),
       });
     }
     return cambios;
@@ -2430,9 +2436,41 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
     const { cardId, cambios, elegidos } = acomodar;
     const filas = cambios.filter((_, i) => elegidos[i]).flatMap(c => c.filas);
     if (!filas.length) { setAcomodar(null); return; }
+    // Antes de mover nada se guarda dónde estaba cada consumo, para poder
+    // volver atrás si el resultado no era el esperado.
+    const antes = filas.map(f => {
+      const prev = (expenses[cardId] || []).find(e => e.id === f.id);
+      return { id: f.id, fecha_compra: prev?.fecha_compra };
+    }).filter(x => x.fecha_compra);
     await Promise.all(filas.map(f => supabase.from('card_expenses').update({ fecha_compra: f.fecha_compra }).eq('id', f.id)));
     setAcomodar(null);
+    setDeshacer({ cardId, filas: antes });
     loadExpenses(cardId);
+  }
+
+  // Vuelve los consumos a la fecha que tenían antes del último acomodo.
+  async function deshacerAcomodo() {
+    const { cardId, filas } = deshacer;
+    await Promise.all(filas.map(f => supabase.from('card_expenses').update({ fecha_compra: f.fecha_compra }).eq('id', f.id)));
+    setDeshacer(null);
+    loadExpenses(cardId);
+  }
+
+  // Pasa consumos que quedaron en un período ya vencido al vencimiento vigente,
+  // sin tocar montos ni nada más. Es la salida cuando un cambio de ciclo deja
+  // algo colgado en un período que ya se pagó.
+  async function moverAlPeriodoActual(card, lista) {
+    const destino = card.fecha_limite_pago;
+    if (!destino) return;
+    const mesDestino = deISO(destino);
+    const antes = lista.map(e => ({ id: e.id, fecha_compra: e.fecha_compra }));
+    await Promise.all(lista.map(e => {
+      const dia = deISO(e.fecha_compra).getDate();
+      const f = enMes(mesDestino.getFullYear(), mesDestino.getMonth(), dia);
+      return supabase.from('card_expenses').update({ fecha_compra: f }).eq('id', e.id);
+    }));
+    setDeshacer({ cardId: card.id, filas: antes });
+    loadExpenses(card.id);
   }
 
   async function handlePagarTarjeta(expId, cardId) {
@@ -2600,6 +2638,17 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
                   </div>
                 </div>
 
+                {deshacer && deshacer.cardId === card.id && (
+                  <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 12, padding: '10px 12px' }}>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', lineHeight: 1.5 }}>
+                      Se cambiaron de período {deshacer.filas.length} consumo{deshacer.filas.length !== 1 ? 's' : ''}. ¿No era esto?
+                    </span>
+                    <button type="button" onClick={deshacerAcomodo}
+                      style={{ flexShrink: 0, padding: '7px 12px', borderRadius: 9, border: '1px solid rgba(165,180,252,0.45)', background: 'rgba(99,102,241,0.2)', color: '#a5b4fc', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      ↩ Deshacer
+                    </button>
+                  </div>
+                )}
                 {verPeriodo && (() => {
                   // Lo que se paga en el próximo vencimiento: los consumos sin pagar
                   // que caen en el mes del límite de pago cargado en la tarjeta.
@@ -2631,6 +2680,15 @@ function Tarjetas({ userId, userEmail, cfg: cfgProp, soloLectura = false, abrir 
                             {atrasados.length} consumo{atrasados.length !== 1 ? 's' : ''} de períodos anteriores que todavía no marcaste como pagados.
                           </div>
                           {botonPagar(atrasados, `✓ Ya pagué esto (${atrasados.length} consumo${atrasados.length !== 1 ? 's' : ''})`)}
+                          {!soloLectura && (
+                            <button type="button" onClick={() => moverAlPeriodoActual(card, atrasados)}
+                              style={{ width: '100%', marginTop: 8, padding: '9px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.18)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                              → Pasarlos al {fmtFecha(venc)}
+                            </button>
+                          )}
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 6, lineHeight: 1.5 }}>
+                            Si quedaron acá por un cambio de fechas y en realidad se pagan recién en el próximo vencimiento, pasalos. No se toca ningún monto.
+                          </div>
                         </div>
                       )}
                       <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 14, padding: '12px 14px' }}>
