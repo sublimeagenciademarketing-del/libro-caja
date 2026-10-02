@@ -3161,7 +3161,8 @@ function Perfil({ userId, userEmail }) {
   }
 
   async function renameCuentaEnTodo(uid, oldKey, newKey) {
-    const tables = ['transactions', 'receivables', 'debts', 'recurring_expenses', 'card_expenses', 'installment_purchases'];
+    // savings_goals también lleva cuenta desde que las metas se separaron por cuenta.
+    const tables = ['transactions', 'receivables', 'debts', 'recurring_expenses', 'card_expenses', 'installment_purchases', 'savings_goals'];
     await Promise.all(tables.map(t =>
       supabase.from(t).update({ cuenta: newKey }).eq('user_id', uid).eq('cuenta', oldKey)
     ));
@@ -3174,6 +3175,7 @@ function Perfil({ userId, userEmail }) {
     await supabase.from('recurring_expenses').delete().eq('user_id', uid).eq('cuenta', key);
     await supabase.from('card_expenses').delete().eq('user_id', uid).eq('cuenta', key);
     await supabase.from('installment_purchases').delete().eq('user_id', uid).eq('cuenta', key);
+    await supabase.from('savings_goals').delete().eq('user_id', uid).eq('cuenta', key);
   }
 
   async function executeSave(tipo, accion, cuentaElegida) {
