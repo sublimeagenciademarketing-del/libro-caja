@@ -544,6 +544,15 @@ export default function Home() {
   // mientras se lee la configuración.
   const [tutorialVisto, setTutorialVisto] = useState(true);
   const [verTutorial, setVerTutorial] = useState(false);
+
+  // Enlace directo al tutorial, para el correo que se manda a los que ya
+  // están registrados: con ?tutorial=1 se abre apenas entran al app.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tutorial') === '1') {
+      setVerTutorial(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminBadge, setAdminBadge] = useState(0);
   const [projection, setProjection] = useState(null);
