@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas, puedeTarjetaPeriodo, puedeRadiografia } from '../../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeUsarMonedas, puedeConvertir, puedeVerMas, puedeResumenAmpliado, puedeMonedasModulos, puedeResumenCuentas, puedeTarjetaPeriodo, puedeRadiografia, puedeTutorial } from '../../lib/config';
+import Tutorial from '../../components/Tutorial';
 import { MONEDAS, esGuarani, fmtMoneda, leerMonto } from '../../lib/monedas';
 import Convertidor, { BotonConvertir } from '../../components/Convertidor';
 import Cartel, { btnPrimario, btnSecundario, textoCartel, Destacado } from '../../components/Cartel';
@@ -3117,6 +3118,7 @@ function Recordatorios({ userId }) {
 function Perfil({ userId, userEmail }) {
   const [cuenta1, setCuenta1] = useState('');
   const [cuenta2, setCuenta2] = useState('');
+  const [verTutorial, setVerTutorial] = useState(false);
   const [plan, setPlan] = useState('');
   const [origPlan, setOrigPlan] = useState('');
   const [origC1, setOrigC1] = useState('');
@@ -3384,6 +3386,19 @@ function Perfil({ userId, userEmail }) {
         <Recordatorios userId={userId} />
 
         {puedeUsarMonedas(userEmail) && <MonedasExtra userId={userId} />}
+
+        {puedeTutorial(userEmail) && (
+          <>
+            {verTutorial && (
+              <Tutorial puedeSalir alSalir={() => setVerTutorial(false)} alTerminar={() => setVerTutorial(false)} />
+            )}
+            <button type="button" onClick={() => setVerTutorial(true)}
+              style={{ padding: '13px', borderRadius: 14, border: '1px solid rgba(139,92,246,0.4)', background: 'rgba(139,92,246,0.12)', color: '#c4b5fd', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4" /></svg>
+              Ver cómo se usa el app
+            </button>
+          </>
+        )}
 
         <button type="submit" disabled={saving} style={{ padding: '14px', borderRadius: 14, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: saving ? 0.7 : 1 }}>
           {saving ? 'Guardando...' : 'Guardar cambios'}

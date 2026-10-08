@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../lib/supabaseClient';
-import { DIAS_PRUEBA, ADMIN_EMAIL, puedeVistaMonedas, puedeConvertir, puedeMonedasModulos } from '../lib/config';
+import { DIAS_PRUEBA, ADMIN_EMAIL, puedeVistaMonedas, puedeConvertir, puedeMonedasModulos, puedeTutorial } from '../lib/config';
 import Convertidor, { BotonConvertir } from '../components/Convertidor';
 import { hoyISO, proximoDe, esRecurrente, ocurrenciasEnMes } from '../lib/recurrencia';
 import { cargarAvisos, calcularAvisos } from '../lib/avisos';
 import { suscribirPush, activarPush, estadoPush } from '../lib/push-cliente';
 import { MONEDAS, esGuarani, fmtMoneda, resumenMonedas, textoAcumulados, totalesPorMoneda, leerMonto } from '../lib/monedas';
+import Tutorial from '../components/Tutorial';
 
 const fmt = (n) => '₲ ' + Math.round(Math.abs(n)).toLocaleString('es-PY');
 const fmtFecha = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
@@ -469,6 +470,24 @@ function InvitacionInstalar({ userId, mostrar, onVer }) {
   );
 }
 
+// Aviso de que existe el tutorial en video. No se puede descartar: se va
+// cuando la persona lo termina de ver. Si toca "Seguir después", vuelve a
+// aparecer la próxima vez, porque todavía no lo vio.
+function AvisoTutorial({ onVer }) {
+  return (
+    <div style={{ background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 16, padding: '12px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="#fff"/></svg>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Mirá cómo se usa MiCaja</div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2, lineHeight: 1.4 }}>Un video corto por cada función. En unos minutos ya sabés usar todo.</div>
+      </div>
+      <button type="button" onClick={onVer} style={{ padding: '8px 12px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>Ver ahora</button>
+    </div>
+  );
+}
+
 function PrimerosPasos({ pasos }) {
   const hechos = pasos.filter(p => p.hecho).length;
   return (
@@ -521,6 +540,10 @@ export default function Home() {
   const [filter, setFilter] = useState('todos');
   const [mesFiltro, setMesFiltro] = useState(new Date().getMonth());
   const [cfg, setCfg] = useState({ c1: 'sublime', c2: 'personal', l1: 'Sublime', l2: 'Personal' });
+  // Tutorial en video: arranca en true para que la tarjeta no parpadee
+  // mientras se lee la configuración.
+  const [tutorialVisto, setTutorialVisto] = useState(true);
+  const [verTutorial, setVerTutorial] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminBadge, setAdminBadge] = useState(0);
   const [projection, setProjection] = useState(null);
@@ -644,6 +667,7 @@ export default function Home() {
     // Última apertura, para el panel admin: una vez por día, en hora de Paraguay.
     anotarApertura(userId, uc.ultima_apertura).then(v => { aperturaRef.current = v; });
     const c = buildCfgFromDB(uc);
+    setTutorialVisto(!!uc.tutorial_visto);
     setFechaRegistro(uc.fecha_registro || null);
     setCfg(c);
     setCuenta(c.c1);
@@ -906,6 +930,16 @@ export default function Home() {
     loadTransactions(session.user.id);
   }
 
+  // Se marca recién cuando llega al final: si sale con "Seguir después",
+  // la tarjeta vuelve a aparecer, porque todavía no lo vio.
+  async function terminarTutorial() {
+    setVerTutorial(false);
+    setTutorialVisto(true);
+    if (session?.user?.id) {
+      await supabase.from('user_config').update({ tutorial_visto: new Date().toISOString() }).eq('user_id', session.user.id);
+    }
+  }
+
   async function handleLogout() {
     await supabase.auth.signOut();
     router.push('/login');
@@ -1023,6 +1057,12 @@ export default function Home() {
         );
       })()}
 
+      {verTutorial && (
+        <Tutorial puedeSalir={false} alSalir={() => setVerTutorial(false)} alTerminar={terminarTutorial} />
+      )}
+      {session?.user?.id && puedeTutorial(session.user.email) && !tutorialVisto && (
+        <AvisoTutorial onVer={() => setVerTutorial(true)} />
+      )}
       {session?.user?.id && (
         <InvitacionInstalar userId={session.user.id} mostrar={showInstallBtn} onVer={instalarApp} />
       )}
